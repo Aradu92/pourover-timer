@@ -1,0 +1,1572 @@
+// Pourover Timer Logic
+console.log('Timer.js loaded successfully');
+
+// Default recipe
+let pourStages = [
+    { name: 'Bloom', duration: 45, waterAmount: 50, instruction: 'Pour 1: 50 grams (Bloom)' },
+    { name: 'First Pour', duration: 45, waterAmount: 100, instruction: 'Pour 2: 100 grams' },
+    { name: 'Second Pour', duration: 45, waterAmount: 100, instruction: 'Pour 3: 100 grams' },
+    { name: 'Final Pour', duration: 45, waterAmount: 100, instruction: 'Pour 4: 100 grams' }
+];
+
+let currentStageIndex = 0;
+let timeRemaining = pourStages[0].duration;
+let timerInterval = null;
+let isRunning = false;
+let totalDuration = 0;
+let totalElapsed = 0; // Track total elapsed time for smooth progress
+
+// Audio context for beep sound
+const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+console.log('Audio context created:', audioContext);
+
+/**
+ * Play a short beep sound using the global AudioContext instance `audioContext`.
+ *
+ * This function creates an OscillatorNode and a GainNode, connects them to the
+ * audio context destination, configures a sine-wave oscillator at 800 Hz,
+ * sets the gain to 0.3 and exponentially ramps it down to 0.01 over 0.5 seconds,
+ * then starts and stops the oscillator at audioContext.currentTime and
+ * audioContext.currentTime + 0.5 respectively. It logs progress and errors
+ * to the console.
+ *
+ * Requirements:
+ * - A valid AudioContext must be available in the variable `audioContext`.
+ *
+ * @function playBeep
+ * @returns {void} Does not return a value.
+ */
+function playBeep() {
+    console.log('Playing beep sound');
+    try {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.5);
+        console.log('Beep played successfully');
+    } catch (error) {
+        console.error('Error playing beep:', error);
+    }
+}
+
+function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+function updateDisplay() {
+    console.log('Updating display - Time remaining:', timeRemaining, 'Stage:', currentStageIndex);
+    const timerDisplay = document.getElementById('timer-display');
+    const instruction = document.getElementById('instruction');
+    const progressBar = document.getElementById('progress-bar');
+    
+    if (timerDisplay) {
+        timerDisplay.textContent = formatTime(timeRemaining);
+    }
+    
+    if (instruction && currentStageIndex < pourStages.length) {
+        instruction.textContent = pourStages[currentStageIndex].instruction;
+    }
+    
+    // Update progress bar smoothly using total elapsed time
+    const progress = (totalElapsed / totalDuration) * 100;
+    if (progressBar) {
+        progressBar.style.width = `${Math.min(progress, 100)}%`;
+    }
+}
+
+function updateStageIndicators() {
+    console.log('Updating stage indicators for stage:', currentStageIndex);
+    // Update stage circles
+    for (let i = 0; i < 4; i++) {
+        const circle = document.getElementById(`stage-${i + 1}`);
+        if (circle) {
+            if (i < currentStageIndex) {
+                // Completed stage
+                circle.setAttribute('fill', '#22c55e');
+                circle.classList.remove('stage-active');
+            } else if (i === currentStageIndex) {
+                // Current stage
+                circle.setAttribute('fill', '#f59e0b');
+                circle.classList.add('stage-active');
+            } else {
+                // Future stage
+                circle.setAttribute('fill', '#cbd5e1');
+                circle.classList.remove('stage-active');
+            }
+        }
+    }
+    
+    // Update water level animation
+    const waterLevel = document.getElementById('water-level');
+    if (waterLevel && currentStageIndex < pourStages.length) {
+        const stage = pourStages[currentStageIndex];
+        const stageProgress = (stage.duration - timeRemaining) / stage.duration;
+        const height = Math.min(stageProgress * 150, 150);
+        waterLevel.setAttribute('height', height.toString());
+        waterLevel.setAttribute('y', (200 - height).toString());
+    }
+    
+    // Show/hide water drops during active pouring
+    const waterDrops = document.getElementById('water-drops');
+    if (waterDrops) {
+        if (isRunning && currentStageIndex < pourStages.length) {
+            waterDrops.style.display = 'block';
+        } else {
+            waterDrops.style.display = 'none';
+        }
+    }
+}
+
+function nextStage() {
+    console.log('Moving to next stage from:', currentStageIndex);
+    currentStageIndex++;
+    console.log('New stage index:', currentStageIndex);
+    
+    if (currentStageIndex < pourStages.length) {
+        timeRemaining = pourStages[currentStageIndex].duration;
+        playBeep();
+        updateDisplay();
+        updateStageIndicators();
+    } else {
+        // Timer completed
+        console.log('Timer completed!');
+        stopTimer();
+        showCompletionForm();
+    }
+}
+
+function tick() {
+    console.log('Tick - Time remaining:', timeRemaining);
+    timeRemaining--;
+    totalElapsed++; // Increment total elapsed time for smooth progress
+    updateDisplay();
+    updateStageIndicators();
+    
+    if (timeRemaining <= 0) {
+        nextStage();
+    }
+}
+
+function startTimer() {
+    console.log('startTimer called - isRunning:', isRunning);
+    if (isRunning) {
+        console.log('Timer already running, ignoring');
+        return;
+    }
+    
+    isRunning = true;
+    console.log('Timer started!');
+    
+    // Calculate total duration
+    totalDuration = pourStages.reduce((sum, stage) => sum + stage.duration, 0);
+    console.log('Total duration:', totalDuration);
+    
+    if (currentStageIndex === 0 && timeRemaining === 0) {
+        timeRemaining = pourStages[0].duration;
+        totalElapsed = 0; // Reset total elapsed
+        console.log('Initial time set to:', timeRemaining);
+    }
+    
+    updateDisplay();
+    updateStageIndicators();
+    
+    timerInterval = window.setInterval(tick, 1000);
+    console.log('Interval started:', timerInterval);
+    
+    const startBtn = document.getElementById('start-btn');
+    if (startBtn) {
+        startBtn.textContent = 'Pause';
+        startBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+        startBtn.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
+    }
+}
+
+function pauseTimer() {
+    console.log('pauseTimer called');
+    if (!isRunning) return;
+    
+    isRunning = false;
+    console.log('Timer paused');
+    
+    if (timerInterval !== null) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+    
+    const startBtn = document.getElementById('start-btn');
+    if (startBtn) {
+        startBtn.textContent = 'Resume';
+        startBtn.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
+        startBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+    }
+}
+
+function stopTimer() {
+    console.log('stopTimer called');
+    isRunning = false;
+    
+    if (timerInterval !== null) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+    
+    const waterDrops = document.getElementById('water-drops');
+    if (waterDrops) {
+        waterDrops.style.display = 'none';
+    }
+}
+
+function resetTimer() {
+    console.log('resetTimer called');
+    stopTimer();
+    currentStageIndex = 0;
+    timeRemaining = 0;
+    totalElapsed = 0; // Reset total elapsed
+    
+    const timerDisplay = document.getElementById('timer-display');
+    const instruction = document.getElementById('instruction');
+    const progressBar = document.getElementById('progress-bar');
+    const waterLevel = document.getElementById('water-level');
+    
+    if (timerDisplay) timerDisplay.textContent = '00:00';
+    if (instruction) instruction.textContent = 'Press Start to Begin';
+    if (progressBar) progressBar.style.width = '0%';
+    if (waterLevel) {
+        waterLevel.setAttribute('height', '0');
+        waterLevel.setAttribute('y', '200');
+    }
+    
+    // Reset stage indicators
+    for (let i = 0; i < 4; i++) {
+        const circle = document.getElementById(`stage-${i + 1}`);
+        if (circle) {
+            circle.setAttribute('fill', '#cbd5e1');
+            circle.classList.remove('stage-active');
+        }
+    }
+    
+    const startBtn = document.getElementById('start-btn');
+    if (startBtn) {
+        startBtn.textContent = 'Start';
+        startBtn.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
+        startBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+    }
+    
+    hideCompletionForm();
+    console.log('Timer reset complete');
+}
+
+function showCompletionForm() {
+    console.log('Showing completion form');
+    const form = document.getElementById('completion-form');
+    if (form) {
+        form.classList.remove('hidden');
+        playBeep();
+        setTimeout(() => playBeep(), 500);
+    }
+}
+
+function hideCompletionForm() {
+    const form = document.getElementById('completion-form');
+    const beansInput = document.getElementById('beans-input');
+    const originInput = document.getElementById('origin-input');
+    const roastInput = document.getElementById('roast-input');
+    const maslInput = document.getElementById('masl-input');
+    const notesInput = document.getElementById('notes-input');
+    const ratingValue = document.getElementById('rating-value');
+    const saveMessage = document.getElementById('save-message');
+    
+    if (form) form.classList.add('hidden');
+    if (beansInput) beansInput.value = '';
+    if (originInput) originInput.value = '';
+    if (roastInput) roastInput.value = '';
+    if (maslInput) maslInput.value = '';
+    if (notesInput) notesInput.value = '';
+    if (ratingValue) ratingValue.value = '0';
+    if (saveMessage) saveMessage.classList.add('hidden');
+    
+    // Reset rating stars
+    document.querySelectorAll('.rating-btn').forEach(btn => {
+        btn.classList.remove('opacity-50');
+    });
+}
+
+async function saveBrew(beans, rating, origin, roast, masl, notes, grinder, grindSize) {
+    console.log('Saving brew:', { beans, rating, origin, roast, masl });
+    
+    // Capture current recipe
+    const recipeData = {
+        name: 'Custom Recipe',
+        stages: pourStages.map(stage => ({
+            name: stage.name,
+            duration: stage.duration,
+            waterAmount: stage.waterAmount
+        }))
+    };
+    
+    try {
+        const response = await fetch('http://localhost:3000/api/brews', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                beans, 
+                rating,
+                origin,
+                roast,
+                masl,
+                grinder,
+                grindSize,
+                notes,
+                recipe: recipeData
+            })
+        });
+        
+        if (response.ok) {
+            console.log('Brew saved successfully');
+            const saveMessage = document.getElementById('save-message');
+            if (saveMessage) {
+                saveMessage.classList.remove('hidden');
+                setTimeout(() => {
+                    hideCompletionForm();
+                    resetTimer();
+                }, 2000);
+            }
+            loadBrews();
+        } else {
+            console.error('Failed to save brew, status:', response.status);
+        }
+    } catch (error) {
+        console.error('Error saving brew:', error);
+        alert('Failed to save brew. Make sure the server is running.');
+    }
+}
+
+async function loadBrews() {
+    console.log('Loading brews...');
+    try {
+        const response = await fetch('http://localhost:3000/api/brews');
+        const brews = await response.json();
+        console.log('Loaded brews:', brews);
+        
+        const brewsList = document.getElementById('brews-list');
+        if (brewsList) {
+            if (brews.length === 0) {
+                brewsList.innerHTML = '<p class="text-gray-500 text-center">No brews yet</p>';
+            } else {
+                brewsList.innerHTML = brews
+                    .slice(-10)
+                    .reverse()
+                    .map((brew) => {
+                        const date = new Date(brew.timestamp).toLocaleDateString();
+                        const stars = '⭐'.repeat(brew.rating);
+                        return `
+                            <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg group">
+                                <div>
+                                    <span class="font-medium">${brew.beans}</span>
+                                    <span class="text-sm text-gray-500 ml-2">${date}</span>
+                                    ${brew.grinder ? `<div class="text-xs text-gray-600">Grinder: ${brew.grinder} ${brew.grindSize ? `• ${brew.grindSize}` : ''}</div>` : ''}
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span>${stars}</span>
+                                    <button onclick="deleteBrew('${brew.id}')" 
+                                            class="opacity-0 group-hover:opacity-100 transition text-red-600 hover:text-red-800 font-bold">
+                                        🗑️
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    })
+                    .join('');
+            }
+        }
+    } catch (error) {
+        console.error('Error loading brews:', error);
+    }
+}
+
+async function deleteBrew(brewId) {
+    console.log('Deleting brew:', brewId);
+    if (!confirm('Are you sure you want to delete this brew?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`http://localhost:3000/api/brews/${brewId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            console.log('Brew deleted successfully');
+            loadBrews();
+        } else {
+            console.error('Failed to delete brew');
+        }
+    } catch (error) {
+        console.error('Error deleting brew:', error);
+        alert('Failed to delete brew');
+    }
+}
+
+// Recipe Management Functions
+async function loadRecipes() {
+    console.log('Loading recipes...');
+    try {
+        const response = await fetch('http://localhost:3000/api/recipes');
+        const recipes = await response.json();
+        console.log('Loaded recipes:', recipes);
+        
+        const savedRecipes = document.getElementById('saved-recipes');
+        if (savedRecipes) {
+            savedRecipes.innerHTML = '<option value="">-- Select a saved recipe --</option>';
+            recipes.forEach(recipe => {
+                const option = document.createElement('option');
+                option.value = recipe.id;
+                option.textContent = recipe.name;
+                option.dataset.recipe = JSON.stringify(recipe);
+                savedRecipes.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading recipes:', error);
+    }
+        const savedGrindersGridSelect = document.getElementById('saved-grinders-grid');
+        if (savedGrindersGridSelect) {
+            savedGrindersGridSelect.innerHTML = '<option value="">-- Select a saved grinder --</option>';
+            // Load grinders here if needed
+        }
+}
+
+// Load grinders
+let editingGrinderId = null;
+
+async function loadGrinders() {
+    console.log('Loading grinders...');
+    try {
+        const response = await fetch('http://localhost:3000/api/grinders');
+        const grinders = await response.json();
+        console.log('Loaded grinders:', grinders);
+        const savedGrinders = document.getElementById('saved-grinders-grid');
+        const grinderInput = document.getElementById('grinder-input');
+        if (savedGrinders) {
+            savedGrinders.innerHTML = '<option value="">-- Select a saved grinder --</option>';
+            grinders.forEach(g => {
+                const option = document.createElement('option');
+                option.value = g.id;
+                option.textContent = g.name;
+                option.dataset.grinder = JSON.stringify(g);
+                savedGrinders.appendChild(option);
+            });
+        }
+        if (grinderInput) {
+            // populate grinder select in completion form
+            grinderInput.innerHTML = '<option value="">Select grinder</option>' + grinders.map(g => `<option value="${g.name}">${g.name}</option>`).join('');
+        }
+        // Populate grinders-list for easy management
+        const grindersList = document.getElementById('grinders-list');
+        if (grindersList) {
+            grindersList.innerHTML = '';
+            grinders.forEach(g => {
+                const row = document.createElement('div');
+                row.className = 'flex justify-between items-center p-2 border rounded-md';
+                row.innerHTML = `
+                    <div><strong>${g.name}</strong> <span class="text-gray-600 text-sm">${g.notes || ''}</span></div>
+                    <div class="flex gap-2">
+                        <button class="grinder-edit-btn bg-yellow-400 hover:bg-yellow-500 px-2 py-1 rounded" data-id="${g.id}">Edit</button>
+                        <button class="grinder-delete-btn bg-red-500 hover:bg-red-600 px-2 py-1 rounded text-white" data-id="${g.id}">Delete</button>
+                    </div>
+                `;
+                grindersList.appendChild(row);
+            });
+
+            // attach list button handlers
+            const listEditBtns = grindersList.querySelectorAll('.grinder-edit-btn');
+            listEditBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    if (!id) return;
+                    const sel = document.getElementById('saved-grinders-grid');
+                    if (sel) {
+                        sel.value = id;
+                        editGrinder();
+                    }
+                });
+            });
+            const listDeleteBtns = grindersList.querySelectorAll('.grinder-delete-btn');
+            listDeleteBtns.forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    if (!id) return;
+                    const sel = document.getElementById('saved-grinders-grid');
+                    if (sel) sel.value = id;
+                    await deleteGrinder();
+                });
+            });
+        }
+        // reset editing state
+        const editingField = document.getElementById('editing-grinder-id');
+        if (editingField) editingField.value = '';
+        editingGrinderId = null;
+        const saveBtn = document.getElementById('save-grinder-btn-grid');
+        if (saveBtn) saveBtn.textContent = 'Save Grinder';
+    } catch (error) {
+        console.error('Error loading grinders:', error);
+    }
+}
+
+async function saveGrinder() {
+    const nameInput = document.getElementById('grinder-name-grid');
+    const notesInput = document.getElementById('grinder-notes-grid');
+    const name = nameInput?.value?.trim();
+    const notes = notesInput?.value?.trim();
+    if (!name) return alert('Please enter a grinder name');
+    try {
+        let resp;
+        if (editingGrinderId) {
+            // update
+            resp = await fetch(`http://localhost:3000/api/grinders/${editingGrinderId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, notes })
+            });
+        } else {
+            resp = await fetch('http://localhost:3000/api/grinders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, notes })
+            });
+        }
+        if (resp.ok) {
+            nameInput.value = '';
+            notesInput.value = '';
+            const wasEditing = !!editingGrinderId;
+            document.getElementById('editing-grinder-id').value = '';
+            editingGrinderId = null;
+            const saveBtn = document.getElementById('save-grinder-btn-grid');
+            if (saveBtn) saveBtn.textContent = 'Save Grinder';
+            loadGrinders();
+            alert(wasEditing ? 'Grinder updated' : 'Grinder saved');
+        } else {
+            alert('Failed to save grinder');
+        }
+    } catch (err) {
+        console.error('Error saving grinder', err);
+        alert('Failed to save grinder');
+    }
+}
+
+async function deleteGrinder() {
+    const savedGrinders = document.getElementById('saved-grinders-grid');
+    if (!savedGrinders || !savedGrinders.value) return alert('Select a grinder to delete');
+    if (!confirm('Are you sure you want to delete this grinder?')) return;
+    try {
+        const id = savedGrinders.value;
+        const resp = await fetch(`http://localhost:3000/api/grinders/${id}`, { method: 'DELETE' });
+        if (resp.ok) {
+            loadGrinders();
+            alert('Grinder deleted');
+        } else {
+            alert('Failed to delete grinder');
+        }
+    } catch (err) {
+        console.error('Error deleting grinder', err);
+        alert('Failed to delete grinder');
+    }
+}
+
+async function editGrinder() {
+    const savedGrinders = document.getElementById('saved-grinders-grid');
+    if (!savedGrinders || !savedGrinders.value) return alert('Select a grinder to edit');
+    const selected = savedGrinders.options[savedGrinders.selectedIndex];
+    if (!selected) return;
+    const grinderData = JSON.parse(selected.dataset.grinder);
+    document.getElementById('grinder-name-grid').value = grinderData.name || '';
+    document.getElementById('grinder-notes-grid').value = grinderData.notes || '';
+    document.getElementById('editing-grinder-id').value = grinderData.id;
+    editingGrinderId = grinderData.id;
+    const saveBtn = document.getElementById('save-grinder-btn-grid');
+    if (saveBtn) saveBtn.textContent = 'Update Grinder';
+}
+
+async function saveRecipe() {
+    console.log('Saving recipe...');
+    const recipeName = document.getElementById('recipe-name').value || 'Custom Recipe';
+    
+    const stages = [
+        {
+            name: 'Bloom',
+            duration: parseInt(document.getElementById('stage1-time').value) || 45,
+            waterAmount: parseInt(document.getElementById('stage1-water').value) || 50
+        },
+        {
+            name: 'First Pour',
+            duration: parseInt(document.getElementById('stage2-time').value) || 45,
+            waterAmount: parseInt(document.getElementById('stage2-water').value) || 100
+        },
+        {
+            name: 'Second Pour',
+            duration: parseInt(document.getElementById('stage3-time').value) || 45,
+            waterAmount: parseInt(document.getElementById('stage3-water').value) || 100
+        },
+        {
+            name: 'Final Pour',
+            duration: parseInt(document.getElementById('stage4-time').value) || 45,
+            waterAmount: parseInt(document.getElementById('stage4-water').value) || 100
+        }
+    ];
+    
+    try {
+        const response = await fetch('http://localhost:3000/api/recipes', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name: recipeName, stages })
+        });
+        
+        if (response.ok) {
+            console.log('Recipe saved successfully');
+            alert('Recipe saved successfully!');
+            loadRecipes();
+        } else {
+            console.error('Failed to save recipe');
+        }
+    } catch (error) {
+        console.error('Error saving recipe:', error);
+        alert('Failed to save recipe');
+    }
+}
+
+function applyRecipe() {
+    console.log('Applying recipe...');
+    
+    // Update pourStages from form inputs
+    pourStages = [
+        {
+            name: 'Bloom',
+            duration: parseInt(document.getElementById('stage1-time').value) || 45,
+            waterAmount: parseInt(document.getElementById('stage1-water').value) || 50,
+            instruction: `Pour 1: ${document.getElementById('stage1-water').value || 50} grams (Bloom)`
+        },
+        {
+            name: 'First Pour',
+            duration: parseInt(document.getElementById('stage2-time').value) || 45,
+            waterAmount: parseInt(document.getElementById('stage2-water').value) || 100,
+            instruction: `Pour 2: ${document.getElementById('stage2-water').value || 100} grams`
+        },
+        {
+            name: 'Second Pour',
+            duration: parseInt(document.getElementById('stage3-time').value) || 45,
+            waterAmount: parseInt(document.getElementById('stage3-water').value) || 100,
+            instruction: `Pour 3: ${document.getElementById('stage3-water').value || 100} grams`
+        },
+        {
+            name: 'Final Pour',
+            duration: parseInt(document.getElementById('stage4-time').value) || 45,
+            waterAmount: parseInt(document.getElementById('stage4-water').value) || 100,
+            instruction: `Pour 4: ${document.getElementById('stage4-water').value || 100} grams`
+        }
+    ];
+    
+    console.log('Recipe applied:', pourStages);
+    
+    // Hide recipe modal
+    const recipeModal = document.getElementById('recipe-modal');
+    if (recipeModal) {
+        recipeModal.classList.add('hidden');
+    }
+    
+    // Reset timer if it was running
+    if (isRunning || currentStageIndex > 0 || timeRemaining > 0) {
+        resetTimer();
+    }
+    
+    alert('Recipe applied! Ready to start brewing.');
+}
+
+function loadRecipeFromSelect() {
+    const savedRecipes = document.getElementById('saved-recipes');
+    const selectedOption = savedRecipes.options[savedRecipes.selectedIndex];
+    
+    if (selectedOption.value && selectedOption.dataset.recipe) {
+        const recipe = JSON.parse(selectedOption.dataset.recipe);
+        console.log('Loading recipe:', recipe);
+        
+        document.getElementById('recipe-name').value = recipe.name;
+        
+        recipe.stages.forEach((stage, idx) => {
+            document.getElementById(`stage${idx + 1}-time`).value = stage.duration;
+            document.getElementById(`stage${idx + 1}-water`).value = stage.waterAmount;
+        });
+    }
+}
+
+// Event Listeners
+console.log('Setting up event listeners...');
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM Content Loaded');
+    
+    const startBtn = document.getElementById('start-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const saveBrewBtn = document.getElementById('save-brew-btn');
+    const ratingBtns = document.querySelectorAll('.rating-btn');
+    const customizeBtn = document.getElementById('customize-btn');
+    const saveRecipeBtn = document.getElementById('save-recipe-btn');
+    const applyRecipeBtn = document.getElementById('apply-recipe-btn');
+    const cancelRecipeBtn = document.getElementById('cancel-recipe-btn');
+    const savedRecipesSelect = document.getElementById('saved-recipes');
+    const savedGrindersSelect = document.getElementById('saved-grinders-grid');
+    const saveGrinderBtn = document.getElementById('save-grinder-btn-grid');
+    const deleteGrinderBtn = document.getElementById('delete-grinder-btn-grid');
+    const editGrinderBtn = document.getElementById('edit-grinder-btn-grid');
+    const manageGrindersBtn = document.getElementById('manage-grinders-btn');
+    
+    console.log('Elements found:', {
+        startBtn: !!startBtn,
+        resetBtn: !!resetBtn,
+        saveBrewBtn: !!saveBrewBtn,
+        ratingBtns: ratingBtns.length,
+        customizeBtn: !!customizeBtn
+    });
+    
+    if (startBtn) {
+        console.log('Adding click listener to start button');
+        startBtn.addEventListener('click', () => {
+            console.log('Start button clicked!');
+            if (isRunning) {
+                pauseTimer();
+            } else {
+                startTimer();
+            }
+        });
+    } else {
+        console.error('Start button not found!');
+    }
+    
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetTimer);
+    }
+    
+    if (saveBrewBtn) {
+        saveBrewBtn.addEventListener('click', () => {
+            const beansInput = document.getElementById('beans-input');
+            const ratingValue = document.getElementById('rating-value');
+            
+            const beans = beansInput?.value || 'Unknown';
+            const rating = parseInt(ratingValue?.value || '0');
+            
+            const originInput = document.getElementById('origin-input');
+            const roastInput = document.getElementById('roast-input');
+            const maslInput = document.getElementById('masl-input');
+            const notesInput = document.getElementById('notes-input');
+            const grinderInput = document.getElementById('grinder-input');
+            const grindSizeInput = document.getElementById('grind-size-input');
+
+            const origin = originInput?.value || '';
+            const roast = roastInput?.value || '';
+            const masl = maslInput?.value || '';
+            const notes = notesInput?.value || '';
+            const grinder = grinderInput?.value || '';
+            const grindSize = parseFloat(grindSizeInput?.value) || null;
+
+            if (rating > 0) {
+                // client-side validation for grindSize range
+                if (grindSize !== null && (isNaN(grindSize) || grindSize < 0 || grindSize > 5000)) {
+                    return alert('Please enter a valid grind size between 0 and 5000.');
+                }
+                saveBrew(beans, rating, origin, roast, masl, notes, grinder, grindSize);
+            } else {
+                alert('Please select a rating');
+            }
+        });
+    }
+    
+    // Rating button handlers
+    ratingBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const target = e.currentTarget;
+            const rating = target.getAttribute('data-rating');
+            const ratingValue = document.getElementById('rating-value');
+            
+            if (ratingValue && rating) {
+                ratingValue.value = rating;
+                
+                // Visual feedback
+                ratingBtns.forEach((b, idx) => {
+                    if (idx < parseInt(rating)) {
+                        b.classList.remove('opacity-50');
+                    } else {
+                        b.classList.add('opacity-50');
+                    }
+                });
+            }
+        });
+    });
+    
+    // Recipe customization handlers
+    if (customizeBtn) {
+        customizeBtn.addEventListener('click', () => {
+            console.log('Customize button clicked');
+            const recipeModal = document.getElementById('recipe-modal');
+            if (recipeModal) {
+                recipeModal.classList.remove('hidden');
+                loadRecipes();
+            }
+        });
+    }
+    
+    if (saveRecipeBtn) {
+        saveRecipeBtn.addEventListener('click', saveRecipe);
+    }
+    
+    if (applyRecipeBtn) {
+        applyRecipeBtn.addEventListener('click', applyRecipe);
+    }
+    
+    if (cancelRecipeBtn) {
+        cancelRecipeBtn.addEventListener('click', () => {
+            const recipeModal = document.getElementById('recipe-modal');
+            if (recipeModal) {
+                recipeModal.classList.add('hidden');
+            }
+        });
+    }
+    
+    if (savedRecipesSelect) {
+        savedRecipesSelect.addEventListener('change', loadRecipeFromSelect);
+    }
+    if (savedGrindersSelect) {
+        savedGrindersSelect.addEventListener('change', (e) => {
+            const opt = e.target.options[e.target.selectedIndex];
+            if (opt && opt.dataset.grinder) {
+                const grinder = JSON.parse(opt.dataset.grinder);
+                const grinderInput = document.getElementById('grinder-input');
+                if (grinderInput) { grinderInput.value = grinder.name; }
+            }
+        });
+    }
+    if (saveGrinderBtn) {
+        saveGrinderBtn.addEventListener('click', saveGrinder);
+    }
+    if (deleteGrinderBtn) {
+        deleteGrinderBtn.addEventListener('click', deleteGrinder);
+    }
+    if (editGrinderBtn) {
+        editGrinderBtn.addEventListener('click', editGrinder);
+    }
+    if (manageGrindersBtn) {
+        manageGrindersBtn.addEventListener('click', () => {
+            // open the Grinders tab instead of showing a recipe modal
+            const gTab = document.getElementById('grinders-tab');
+            if (gTab) {
+                gTab.click();
+            }
+            loadGrinders();
+        });
+    }
+    
+    // Tab switching
+    const timerTab = document.getElementById('timer-tab');
+    const analyticsTab = document.getElementById('analytics-tab');
+    const grindersTab = document.getElementById('grinders-tab');
+    const timerContent = document.getElementById('timer-content');
+    const analyticsContent = document.getElementById('analytics-content');
+    const grindersContent = document.getElementById('grinders-content');
+    
+    if (timerTab) {
+        timerTab.addEventListener('click', () => {
+            // Update button styles
+            timerTab.classList.add('bg-amber-600', 'text-white');
+            timerTab.classList.remove('text-gray-700', 'hover:bg-gray-100');
+            analyticsTab.classList.remove('bg-amber-600', 'text-white');
+            analyticsTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+            
+            // Toggle content visibility
+            timerContent.classList.add('active');
+            analyticsContent.classList.remove('active');
+        });
+    }
+    
+    if (analyticsTab) {
+        analyticsTab.addEventListener('click', () => {
+            // Update button styles
+            analyticsTab.classList.add('bg-amber-600', 'text-white');
+            analyticsTab.classList.remove('text-gray-700', 'hover:bg-gray-100');
+            timerTab.classList.remove('bg-amber-600', 'text-white');
+            timerTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+            
+            // Toggle content visibility
+            analyticsContent.classList.add('active');
+            timerContent.classList.remove('active');
+            
+            // Load analytics data
+            refreshAnalytics();
+            // Ensure charts resize correctly after tab becomes visible
+            setTimeout(() => {
+                try {
+                    if (analyticsChart) analyticsChart.resize();
+                    if (window.ratingChart) window.ratingChart.resize();
+                    if (window.trendChart) window.trendChart.resize();
+                } catch (err) {
+                    // Chart.js may not be loaded yet on very tiny screens; ignore resize errors
+                    console.warn('Error resizing charts:', err);
+                }
+            }, 250);
+        });
+    }
+
+    if (grindersTab) {
+        grindersTab.addEventListener('click', () => {
+            // Update button styles
+            grindersTab.classList.add('bg-amber-600', 'text-white');
+            grindersTab.classList.remove('text-gray-700', 'hover:bg-gray-100');
+
+            // Revert other tabs
+            if (analyticsTab) {
+                analyticsTab.classList.remove('bg-amber-600', 'text-white');
+                analyticsTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+            }
+            if (timerTab) {
+                timerTab.classList.remove('bg-amber-600', 'text-white');
+                timerTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+            }
+
+            // Toggle content visibility
+            grindersContent.classList.add('active');
+            if (analyticsContent) analyticsContent.classList.remove('active');
+            if (timerContent) timerContent.classList.remove('active');
+
+            // Load grinders
+            loadGrinders();
+        });
+    }
+    
+    // Analytics filter handlers
+    const originFilter = document.getElementById('filter-origin');
+    const roastFilter = document.getElementById('filter-roast');
+    const beansFilter = document.getElementById('filter-beans');
+    const grinderFilter = document.getElementById('filter-grinder');
+    const ratingFilter = document.getElementById('filter-rating');
+    const sortByFilter = document.getElementById('sort-by');
+    
+    if (originFilter) {
+        originFilter.addEventListener('change', refreshAnalytics);
+    }
+    if (roastFilter) {
+        roastFilter.addEventListener('change', refreshAnalytics);
+    }
+    if (beansFilter) {
+        beansFilter.addEventListener('change', refreshAnalytics);
+    }
+    if (ratingFilter) {
+        ratingFilter.addEventListener('change', refreshAnalytics);
+    }
+    if (sortByFilter) {
+        sortByFilter.addEventListener('change', refreshAnalytics);
+    }
+    if (grinderFilter) {
+        grinderFilter.addEventListener('change', refreshAnalytics);
+    }
+    const analyticsRefreshBtn = document.getElementById('analytics-refresh');
+    if (analyticsRefreshBtn) {
+        analyticsRefreshBtn.addEventListener('click', () => {
+            refreshAnalytics();
+        });
+    }
+    const analyticsExportBtn = document.getElementById('analytics-export');
+    if (analyticsExportBtn) {
+        analyticsExportBtn.addEventListener('click', () => {
+            exportFilteredCsv();
+        });
+    }
+    
+    // Load previous brews on page load
+    loadBrews();
+    // Load saved recipes and grinders
+    loadRecipes();
+    loadGrinders();
+    // Pre-populate analytics data so charts/filters are available
+    refreshAnalytics();
+    
+    console.log('Event listeners setup complete');
+});
+
+// Analytics functions
+let analyticsChart = null;
+async function refreshAnalytics() {
+    console.log('refreshAnalytics: starting');
+    try {
+        const response = await fetch('http://localhost:3000/api/brews');
+        const brews = await response.json();
+        console.log('refreshAnalytics: fetched', brews.length, 'brews');
+
+        // Populate filter dropdowns
+        populateAnalyticsFilters(brews);
+
+        // Apply filters and sorting
+        const filteredBrews = filterBrews(brews);
+
+        // Calculate and display stats
+        calculateStats(filteredBrews);
+
+        // Render chart
+        renderAnalyticsChart(filteredBrews);
+
+        // Render filtered brew list
+        renderAnalyticsList(filteredBrews);
+        // Update export button enabled state
+        const analyticsExportBtn = document.getElementById('analytics-export');
+        if (analyticsExportBtn) analyticsExportBtn.disabled = !filteredBrews || filteredBrews.length === 0;
+
+        // Generate insights
+        generateInsights(filteredBrews);
+    } catch (error) {
+        console.error('Error refreshing analytics:', error);
+    }
+}
+
+function populateAnalyticsFilters(brews) {
+    // Get unique origins and roasts
+    const originSet = new Set();
+    const roastSet = new Set();
+    const grinderSet = new Set();
+    const beansSet = new Set();
+    brews.forEach(brew => {
+        if (brew.origin) originSet.add(brew.origin);
+        if (brew.roast) roastSet.add(brew.roast);
+        if (brew.beans) beansSet.add(brew.beans);
+        if (brew.grinder) grinderSet.add(brew.grinder);
+    });
+    const originFilter = document.getElementById('filter-origin');
+    const roastFilter = document.getElementById('filter-roast');
+    const beansFilter = document.getElementById('filter-beans');
+    const ratingFilter = document.getElementById('filter-rating');
+    const grinderFilter = document.getElementById('filter-grinder');
+    if (originFilter || roastFilter || ratingFilter || beansFilter) {
+        // preserve current selections
+        const currentOrigin = originFilter ? originFilter.value : '';
+        const currentRoast = roastFilter ? roastFilter.value : '';
+        const currentRating = ratingFilter ? ratingFilter.value : '';
+        const currentBeans = beansFilter ? beansFilter.value : '';
+        const currentGrinder = grinderFilter ? grinderFilter.value : '';
+
+        if (originFilter) {
+            originFilter.innerHTML = '<option value="">All Origins</option>' +
+                Array.from(originSet).map(origin => `<option value="${origin}">${origin}</option>`).join('');
+            originFilter.value = currentOrigin || '';
+        }
+        if (beansFilter) {
+            beansFilter.innerHTML = '<option value="">All Beans</option>' +
+                Array.from(beansSet).map(b => `<option value="${b}">${b}</option>`).join('');
+            beansFilter.value = currentBeans || '';
+        }
+        if (roastFilter) {
+            roastFilter.innerHTML = '<option value="">All Roasts</option>' +
+                Array.from(roastSet).map(roast => `<option value="${roast}">${roast}</option>`).join('');
+            roastFilter.value = currentRoast || '';
+        }
+        if (ratingFilter) {
+            // ratingFilter is static except for preserving selection
+            ratingFilter.value = currentRating || '';
+        }
+        if (grinderFilter) {
+            grinderFilter.innerHTML = '<option value="">All Grinders</option>' +
+                Array.from(grinderSet).map(g => `<option value="${g}">${g}</option>`).join('');
+            grinderFilter.value = currentGrinder || '';
+        }
+    }
+}
+
+function renderAnalyticsChart(brews) {
+    const ctx = document.getElementById('analytics-chart').getContext('2d');
+    const ratingCtxEl = document.getElementById('rating-chart');
+    const ratingCtx = ratingCtxEl ? ratingCtxEl.getContext('2d') : null;
+    // Example: Brew count by origin
+    const originCounts = {};
+    const ratingCounts = { '5': 0, '4': 0, '3': 0, '2': 0, '1': 0 };
+    brews.forEach(brew => {
+        const originLabel = brew.origin || brew.beans || 'Unknown';
+        originCounts[originLabel] = (originCounts[originLabel] || 0) + 1;
+        if (brew.rating !== undefined && brew.rating !== null) {
+            const r = Math.round(brew.rating);
+            if (typeof ratingCounts[r] !== 'undefined') {
+                ratingCounts[r]++;
+            }
+        }
+    });
+    const chartData = {
+        labels: Object.keys(originCounts),
+        datasets: [
+            {
+                label: 'Brews by Origin',
+                data: Object.values(originCounts),
+                backgroundColor: 'rgba(251, 191, 36, 0.7)',
+                borderColor: 'rgba(251, 191, 36, 1)',
+                borderWidth: 2,
+            }
+        ]
+    };
+    const ratingData = {
+        labels: Object.keys(ratingCounts).map(r => r + ' Stars'),
+        datasets: [
+            {
+                label: 'Rating Distribution',
+                data: Object.values(ratingCounts),
+                backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                borderColor: 'rgba(59, 130, 246, 1)',
+                borderWidth: 2,
+            }
+        ]
+    };
+    // If canvas width is zero (e.g., hidden tab), wait and retry
+    if (ctx.canvas.offsetWidth === 0) {
+        setTimeout(() => renderAnalyticsChart(brews), 200);
+        return;
+    }
+    // Destroy previous chart if exists
+    if (analyticsChart) analyticsChart.destroy();
+    // If no origins, render a placeholder
+    if (Object.keys(originCounts).length === 0) {
+        // Clear canvas and show a no-data overlay
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.font = '14px sans-serif';
+        ctx.fillStyle = '#6b7280';
+        ctx.textAlign = 'center';
+        ctx.fillText('No origin data available', ctx.canvas.width / 2, ctx.canvas.height / 2);
+    } else {
+        analyticsChart = new Chart(ctx, {
+            type: 'bar',
+            data: chartData,
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    title: { display: true, text: 'Brews by Origin' }
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Origin' } },
+                    y: { title: { display: true, text: 'Brews' }, beginAtZero: true }
+                }
+            }
+        });
+    }
+    // Render rating distribution (secondary chart)
+    if (ratingCtx) {
+        if (window.ratingChart) window.ratingChart.destroy();
+        // If no ratings data, display placeholder
+        const ratingTotal = Object.values(ratingCounts).reduce((a, b) => a + b, 0);
+        if (ratingTotal === 0) {
+            ratingCtx.clearRect(0, 0, ratingCtx.canvas.width, ratingCtx.canvas.height);
+            ratingCtx.font = '14px sans-serif';
+            ratingCtx.fillStyle = '#6b7280';
+            ratingCtx.textAlign = 'center';
+            ratingCtx.fillText('No rating data available', ratingCtx.canvas.width / 2, ratingCtx.canvas.height / 2);
+        } else {
+            window.ratingChart = new Chart(ratingCtx, {
+            type: 'pie',
+            data: ratingData,
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom' },
+                    title: { display: true, text: 'Rating Distribution' }
+                }
+            }
+            });
+        }
+    }
+    // Add rating chart below (optional: can toggle between charts)
+    // Example: show rating distribution as a second chart
+    // ...existing code...
+}
+
+function filterBrews(brews) {
+    const originFilter = document.getElementById('filter-origin');
+    const roastFilter = document.getElementById('filter-roast');
+    const ratingFilter = document.getElementById('filter-rating');
+    const beansFilter = document.getElementById('filter-beans');
+    const grinderFilter = document.getElementById('filter-grinder');
+    const sortBy = document.getElementById('sort-by');
+    let filtered = brews;
+    if (originFilter && originFilter.value) {
+        filtered = filtered.filter(brew => brew.origin === originFilter.value);
+    }
+    if (roastFilter && roastFilter.value) {
+        filtered = filtered.filter(brew => brew.roast === roastFilter.value);
+    }
+    if (beansFilter && beansFilter.value) {
+        filtered = filtered.filter(brew => brew.beans === beansFilter.value);
+    }
+    if (grinderFilter && grinderFilter.value) {
+        filtered = filtered.filter(brew => brew.grinder === grinderFilter.value);
+    }
+    if (ratingFilter && ratingFilter.value) {
+        const val = parseInt(ratingFilter.value);
+        filtered = filtered.filter(brew => brew.rating >= val);
+    }
+    // Sorting
+    if (sortBy && sortBy.value) {
+        if (sortBy.value === 'date-desc') {
+            filtered = filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        } else if (sortBy.value === 'date-asc') {
+            filtered = filtered.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        } else if (sortBy.value === 'rating-desc') {
+            filtered = filtered.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+        } else if (sortBy.value === 'rating-asc') {
+            filtered = filtered.sort((a, b) => (a.rating || 0) - (b.rating || 0));
+        }
+    }
+    return filtered;
+}
+
+function calculateStats(brews) {
+    const totalBrews = document.getElementById('stat-total');
+    const avgRating = document.getElementById('stat-avg-rating');
+    const favoriteOrigin = document.getElementById('stat-top-origin');
+    const favoriteRoast = document.getElementById('stat-fav-roast');
+    const topRecipeEl = document.getElementById('stat-top-recipe');
+    const topBeansEl = document.getElementById('stat-top-beans');
+    const topGrinderEl = document.getElementById('stat-top-grinder');
+    const avgGrindEl = document.getElementById('stat-avg-grind');
+    const avgWaterEl = document.getElementById('stat-avg-water');
+    const avgTimeEl = document.getElementById('stat-avg-time');
+    
+    if (totalBrews) {
+        totalBrews.textContent = brews.length;
+    }
+    
+    if (avgRating && brews.length > 0) {
+        const avg = brews.reduce((sum, brew) => sum + (brew.rating || 0), 0) / brews.length;
+        avgRating.textContent = avg.toFixed(1);
+    } else if (avgRating) {
+        avgRating.textContent = '-';
+    }
+    
+    if (favoriteOrigin) {
+        const origins = {};
+        brews.forEach(brew => {
+            if (brew.origin) {
+                origins[brew.origin] = (origins[brew.origin] || 0) + 1;
+            }
+        });
+        const topOrigin = Object.entries(origins).sort((a, b) => b[1] - a[1])[0];
+        favoriteOrigin.textContent = topOrigin ? topOrigin[0] : '-';
+    }
+    
+    if (favoriteRoast) {
+        const roasts = {};
+        brews.forEach(brew => {
+            if (brew.roast) {
+                roasts[brew.roast] = (roasts[brew.roast] || 0) + 1;
+            }
+        });
+        const topRoast = Object.entries(roasts).sort((a, b) => b[1] - a[1])[0];
+        favoriteRoast.textContent = topRoast ? topRoast[0] : '-';
+    }
+    // Top Recipe by average rating
+    if (topRecipeEl) {
+        const recipeRatings = {};
+        brews.forEach(brew => {
+            if (brew.recipe && brew.recipe.name && brew.rating) {
+                if (!recipeRatings[brew.recipe.name]) recipeRatings[brew.recipe.name] = { total: 0, count: 0 };
+                recipeRatings[brew.recipe.name].total += brew.rating;
+                recipeRatings[brew.recipe.name].count += 1;
+            }
+        });
+        const topRecipe = Object.entries(recipeRatings)
+            .map(([name, data]) => ({ name, avg: data.total / data.count }))
+            .sort((a, b) => b.avg - a.avg)[0];
+        topRecipeEl.textContent = topRecipe ? `${topRecipe.name} (${topRecipe.avg.toFixed(1)}★)` : '-';
+    }
+    // Top beans by average rating
+    if (topBeansEl) {
+        const beanRatings = {};
+        brews.forEach(brew => {
+            if (brew.beans && brew.rating) {
+                if (!beanRatings[brew.beans]) beanRatings[brew.beans] = { total: 0, count: 0 };
+                beanRatings[brew.beans].total += brew.rating;
+                beanRatings[brew.beans].count += 1;
+            }
+        });
+        const topBean = Object.entries(beanRatings)
+            .map(([name, data]) => ({ name, avg: data.total / data.count }))
+            .sort((a, b) => b.avg - a.avg)[0];
+        topBeansEl.textContent = topBean ? `${topBean.name} (${topBean.avg.toFixed(1)}★)` : '-';
+    }
+    // Top grinder by average rating
+    if (topGrinderEl) {
+        const grinderRatings = {};
+        brews.forEach(brew => {
+            if (brew.grinder && brew.rating) {
+                if (!grinderRatings[brew.grinder]) grinderRatings[brew.grinder] = { total: 0, count: 0 };
+                grinderRatings[brew.grinder].total += brew.rating;
+                grinderRatings[brew.grinder].count += 1;
+            }
+        });
+        const topGr = Object.entries(grinderRatings)
+            .map(([name, data]) => ({ name, avg: data.total / data.count }))
+            .sort((a, b) => b.avg - a.avg)[0];
+        topGrinderEl.textContent = topGr ? `${topGr.name} (${topGr.avg.toFixed(1)}★)` : '-';
+    }
+    // Average grind size
+    if (avgGrindEl) {
+        let totalGrind = 0; let grindCount = 0;
+        brews.forEach(brew => {
+            if (brew.grindSize !== undefined && brew.grindSize !== null) {
+                totalGrind += parseFloat(brew.grindSize);
+                grindCount++;
+            }
+        });
+        const avgGr = grindCount > 0 ? totalGrind / grindCount : 0;
+        avgGrindEl.textContent = grindCount > 0 ? avgGr.toFixed(1) : '-';
+    }
+    // Average water per brew
+    if (avgWaterEl) {
+        let totalWater = 0;
+        let count = 0;
+        brews.forEach(brew => {
+            if (brew.recipe && brew.recipe.stages) {
+                const sum = brew.recipe.stages.reduce((s, st) => s + (st.waterAmount || 0), 0);
+                totalWater += sum; count++;
+            }
+        });
+        const avgWater = count > 0 ? (totalWater / count) : 0;
+        avgWaterEl.textContent = count > 0 ? avgWater.toFixed(0) : '-';
+    }
+    // Average brew time
+    if (avgTimeEl) {
+        let totalTime = 0;
+        let timeCount = 0;
+        brews.forEach(brew => {
+            if (brew.recipe && brew.recipe.stages) {
+                const sumTime = brew.recipe.stages.reduce((s, st) => s + (st.duration || 0), 0);
+                totalTime += sumTime; timeCount++;
+            }
+        });
+        const avgTime = timeCount > 0 ? (totalTime / timeCount) : 0;
+        avgTimeEl.textContent = timeCount > 0 ? avgTime.toFixed(0) : '-';
+    }
+    // Trend chart (brews per day)
+    const trendCtxEl = document.getElementById('trend-chart');
+    if (trendCtxEl) {
+        const trendCtx = trendCtxEl.getContext('2d');
+        // Build per-day count for last 30 days
+        const countsByDay = {};
+        const days = 30;
+        const today = new Date();
+        for (let i = days - 1; i >= 0; i--) {
+            const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+            const key = d.toISOString().split('T')[0];
+            countsByDay[key] = 0;
+        }
+        brews.forEach(brew => {
+            if (brew.timestamp) {
+                const key = new Date(brew.timestamp).toISOString().split('T')[0];
+                if (countsByDay[key] !== undefined) countsByDay[key]++;
+            }
+        });
+        const trendLabels = Object.keys(countsByDay);
+        const trendValues = Object.values(countsByDay);
+        if (window.trendChart) window.trendChart.destroy();
+        const trendTotal = trendValues.reduce((a,b) => a + b, 0);
+        if (trendTotal === 0) {
+            trendCtx.clearRect(0, 0, trendCtx.canvas.width, trendCtx.canvas.height);
+            trendCtx.font = '14px sans-serif';
+            trendCtx.fillStyle = '#6b7280';
+            trendCtx.textAlign = 'center';
+            trendCtx.fillText('No brews in the last 30 days', trendCtx.canvas.width / 2, trendCtx.canvas.height / 2);
+        } else {
+        window.trendChart = new Chart(trendCtx, {
+            type: 'line',
+            data: {
+                labels: trendLabels,
+                datasets: [{
+                    label: 'Brews/day',
+                    data: trendValues,
+                    fill: true,
+                    backgroundColor: 'rgba(34,197,94,0.12)',
+                    borderColor: 'rgba(34,197,94,1)',
+                    tension: 0.2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    title: { display: true, text: 'Brews Over Time (last 30 days)' }
+                },
+                scales: {
+                    x: { display: true, title: { display: false } },
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+        }
+    }
+}
+
+function renderAnalyticsList(brews) {
+    const container = document.getElementById('analytics-brews-list');
+    if (!container) return;
+    
+    if (brews.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-8">No brews found matching filters.</p>';
+        return;
+    }
+    
+    container.innerHTML = brews.map(brew => {
+        const date = new Date(brew.timestamp).toLocaleDateString();
+        const stars = '⭐'.repeat(brew.rating || 0);
+        const recipeName = brew.recipe && brew.recipe.name ? brew.recipe.name : 'Default Recipe';
+        
+        return `
+            <div class="bg-white p-4 rounded-lg shadow">
+                <div class="flex justify-between items-start mb-2">
+                    <div>
+                        <h3 class="font-semibold text-lg">${brew.beans || 'Unknown Beans'}</h3>
+                        <p class="text-sm text-gray-600">${date}</p>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-amber-500">${stars}</div>
+                        <p class="text-xs text-gray-500">${brew.rating || 0}/5</p>
+                    </div>
+                </div>
+                <div class="flex justify-end mt-2">
+                    <button onclick="deleteBrew('${brew.id}')" class="text-sm text-red-600 hover:text-red-800">Delete</button>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-sm mt-3">
+                    ${brew.origin ? `<div><span class="text-gray-600">Origin:</span> <span class="font-medium">${brew.origin}</span></div>` : ''}
+                    ${brew.roast ? `<div><span class="text-gray-600">Roast:</span> <span class="font-medium">${brew.roast}</span></div>` : ''}
+                    ${brew.masl ? `<div><span class="text-gray-600">MASL:</span> <span class="font-medium">${brew.masl}</span></div>` : ''}
+                    ${brew.grinder ? `<div><span class="text-gray-600">Grinder:</span> <span class="font-medium">${brew.grinder}</span></div>` : ''}
+                    ${brew.grindSize ? `<div><span class="text-gray-600">Grind Size:</span> <span class="font-medium">${brew.grindSize}</span></div>` : ''}
+                    <div><span class="text-gray-600">Recipe:</span> <span class="font-medium">${recipeName}</span></div>
+                </div>
+                ${brew.notes ? `<div class="mt-3 pt-3 border-t border-gray-200"><p class="text-sm text-gray-700"><span class="font-medium">Notes:</span> ${brew.notes}</p></div>` : ''}
+                ${brew.recipe && brew.recipe.stages ? `
+                    <div class="mt-3 pt-3 border-t border-gray-200">
+                        <p class="text-xs font-medium text-gray-600 mb-2">Recipe Details:</p>
+                        <div class="grid grid-cols-2 gap-1 text-xs">
+                            ${brew.recipe.stages.map((stage, idx) => `
+                                <div class="text-gray-600">Stage ${idx + 1}: ${stage.waterAmount}g @ ${stage.duration}s</div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+function exportFilteredCsv() {
+    // export the currently filtered brews
+    refreshAnalytics(); // ensure latest
+    setTimeout(async () => {
+        try {
+            const resp = await fetch('http://localhost:3000/api/brews');
+            const allBrews = await resp.json();
+            const filtered = filterBrews(allBrews);
+            if (!filtered || filtered.length === 0) {
+                alert('No brews to export');
+                return;
+            }
+            // Build CSV header
+            const headers = ['id','timestamp','beans','origin','roast','masl','grinder','grindSize','rating','notes','recipe_name','recipe_stages'];
+            const rows = filtered.map(b => {
+                const recipeName = b.recipe && b.recipe.name ? b.recipe.name : '';
+                const stages = b.recipe && b.recipe.stages ? b.recipe.stages.map(s => `${s.name}:${s.waterAmount}g@${s.duration}s`).join('|') : '';
+                return [b.id, b.timestamp, b.beans || '', b.origin || '', b.roast || '', b.masl || '', b.grinder || '', b.grindSize || '', b.rating || '', b.notes || '', recipeName, stages];
+            });
+            const csv = [headers.join(',')].concat(rows.map(r => r.map(c => '"' + String(c).replace(/"/g,'""') + '"').join(','))).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `pourover-brews-${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error('Error exporting CSV', err);
+            alert('Failed to export CSV');
+        }
+    }, 500);
+}
+
+function generateInsights(brews) {
+    const container = document.getElementById('insights-container');
+    if (!container || brews.length === 0) return;
+    
+    const insights = [];
+    
+    // Find highest rated beans
+    const beanRatings = {};
+    brews.forEach(brew => {
+        if (brew.beans && brew.rating) {
+            if (!beanRatings[brew.beans]) {
+                beanRatings[brew.beans] = { total: 0, count: 0 };
+            }
+            beanRatings[brew.beans].total += brew.rating;
+            beanRatings[brew.beans].count += 1;
+        }
+    });
+    
+    const topBeans = Object.entries(beanRatings)
+        .map(([beans, data]) => ({ beans, avg: data.total / data.count }))
+        .sort((a, b) => b.avg - a.avg)[0];
+    
+    if (topBeans) {
+        insights.push(`Your highest rated beans are <strong>${topBeans.beans}</strong> with an average rating of ${topBeans.avg.toFixed(1)} stars.`);
+    }
+    
+    // Find most common origin
+    const origins = {};
+    brews.forEach(brew => {
+        if (brew.origin) {
+            origins[brew.origin] = (origins[brew.origin] || 0) + 1;
+        }
+    });
+    const topOrigin = Object.entries(origins).sort((a, b) => b[1] - a[1])[0];
+    if (topOrigin) {
+        insights.push(`You've brewed coffee from <strong>${topOrigin[0]}</strong> ${topOrigin[1]} time${topOrigin[1] > 1 ? 's' : ''}.`);
+    }
+    
+    // Recipe insights
+    const recipeRatings = {};
+    brews.forEach(brew => {
+        if (brew.recipe && brew.recipe.name && brew.rating) {
+            if (!recipeRatings[brew.recipe.name]) {
+                recipeRatings[brew.recipe.name] = { total: 0, count: 0 };
+            }
+            recipeRatings[brew.recipe.name].total += brew.rating;
+            recipeRatings[brew.recipe.name].count += 1;
+        }
+    });
+    
+    const topRecipe = Object.entries(recipeRatings)
+        .map(([name, data]) => ({ name, avg: data.total / data.count }))
+        .sort((a, b) => b.avg - a.avg)[0];
+    
+    if (topRecipe) {
+        insights.push(`Your best performing recipe is <strong>${topRecipe.name}</strong> with an average rating of ${topRecipe.avg.toFixed(1)} stars.`);
+    }
+    
+    container.innerHTML = insights.map(insight => `
+        <p class="mb-2">• ${insight}</p>
+    `).join('');
+}

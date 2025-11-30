@@ -1,0 +1,248 @@
+import express, { Request, Response } from 'express';
+import cors from 'cors';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const app = express();
+const PORT = 3000;
+const DATA_FILE = path.join(__dirname, '../data/brews.json');
+const RECIPES_FILE = path.join(__dirname, '../data/recipes.json');
+const GRINDERS_FILE = path.join(__dirname, '../data/grinders.json');
+
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '../public')));
+
+interface Brew {
+  id: string;
+  timestamp: string;
+  beans: string;
+  rating: number;
+  // Detailed brew information
+  origin?: string;
+  roast?: string;
+  masl?: string;
+  recipe?: {
+    name: string;
+    stages: {
+      name: string;
+      duration: number;
+      waterAmount: number;
+    }[];
+  };
+  notes?: string;
+  grinder?: string;
+  grindSize?: number;
+}
+
+interface Recipe {
+  id: string;
+  name: string;
+  stages: {
+    name: string;
+    duration: number;
+    waterAmount: number;
+  }[];
+}
+
+interface Grinder {
+  id: string;
+  name: string;
+  notes?: string;
+}
+
+// Ensure data directory and file exist
+function ensureDataFile(filePath: string): void {
+  const dataDir = path.dirname(filePath);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, JSON.stringify([], null, 2));
+  }
+}
+
+// Get all brews
+app.get('/api/brews', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(DATA_FILE);
+    const data = fs.readFileSync(DATA_FILE, 'utf-8');
+    const brews: Brew[] = JSON.parse(data);
+    res.json(brews);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to read brews' });
+  }
+});
+
+// Save a new brew
+app.post('/api/brews', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(DATA_FILE);
+    const data = fs.readFileSync(DATA_FILE, 'utf-8');
+    const brews: Brew[] = JSON.parse(data);
+    
+    // Validate rating
+    const rating = req.body.rating || 0;
+    if (typeof rating !== 'number' && typeof rating !== 'string') {
+      return res.status(400).json({ error: 'Invalid rating' });
+    }
+    const parsedRating = parseInt(rating as any);
+    if (isNaN(parsedRating) || parsedRating < 0 || parsedRating > 5) {
+      return res.status(400).json({ error: 'Rating must be between 0 and 5' });
+    }
+
+    // Validate grindSize if provided
+    const grindSize = req.body.grindSize !== undefined ? parseFloat(req.body.grindSize) : undefined;
+    if (grindSize !== undefined && (isNaN(grindSize) || grindSize < 0 || grindSize > 5000)) {
+      return res.status(400).json({ error: 'Invalid grindSize: must be a number between 0 and 5000' });
+    }
+
+    const newBrew: Brew = {
+      id: Date.now().toString(),
+      timestamp: new Date().toISOString(),
+      beans: req.body.beans || 'Unknown',
+      rating: parsedRating,
+      origin: req.body.origin,
+      roast: req.body.roast,
+      masl: req.body.masl,
+      grinder: req.body.grinder,
+      grindSize: grindSize,
+      recipe: req.body.recipe,
+      notes: req.body.notes
+    };
+    
+    brews.push(newBrew);
+    fs.writeFileSync(DATA_FILE, JSON.stringify(brews, null, 2));
+    
+    res.status(201).json(newBrew);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save brew' });
+  }
+});
+
+// Delete a brew
+app.delete('/api/brews/:id', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(DATA_FILE);
+    const data = fs.readFileSync(DATA_FILE, 'utf-8');
+    let brews: Brew[] = JSON.parse(data);
+    
+    const brewId = req.params.id;
+    brews = brews.filter(brew => brew.id !== brewId);
+    
+    fs.writeFileSync(DATA_FILE, JSON.stringify(brews, null, 2));
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete brew' });
+  }
+});
+
+// Get all recipes
+app.get('/api/recipes', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(RECIPES_FILE);
+    const data = fs.readFileSync(RECIPES_FILE, 'utf-8');
+    const recipes: Recipe[] = JSON.parse(data);
+    res.json(recipes);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to read recipes' });
+  }
+});
+
+// Grinders endpoints
+app.get('/api/grinders', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(GRINDERS_FILE);
+    const data = fs.readFileSync(GRINDERS_FILE, 'utf-8');
+    const grinders: Grinder[] = JSON.parse(data);
+    res.json(grinders);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to read grinders' });
+  }
+});
+
+app.post('/api/grinders', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(GRINDERS_FILE);
+    const data = fs.readFileSync(GRINDERS_FILE, 'utf-8');
+    const grinders: Grinder[] = JSON.parse(data);
+    const { name, notes } = req.body;
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({ error: 'Invalid grinder name' });
+    }
+    const newGrinder: Grinder = {
+      id: Date.now().toString(),
+      name: name.trim(),
+      notes: notes || ''
+    };
+    grinders.push(newGrinder);
+    fs.writeFileSync(GRINDERS_FILE, JSON.stringify(grinders, null, 2));
+    res.status(201).json(newGrinder);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save grinder' });
+  }
+});
+
+app.delete('/api/grinders/:id', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(GRINDERS_FILE);
+    const data = fs.readFileSync(GRINDERS_FILE, 'utf-8');
+    let grinders: Grinder[] = JSON.parse(data);
+    const id = req.params.id;
+    grinders = grinders.filter(g => g.id !== id);
+    fs.writeFileSync(GRINDERS_FILE, JSON.stringify(grinders, null, 2));
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete grinder' });
+  }
+});
+
+// Update an existing grinder
+app.put('/api/grinders/:id', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(GRINDERS_FILE);
+    const data = fs.readFileSync(GRINDERS_FILE, 'utf-8');
+    const grinders: Grinder[] = JSON.parse(data);
+    const { id } = req.params;
+    const { name, notes } = req.body;
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({ error: 'Invalid grinder name' });
+    }
+    const idx = grinders.findIndex(g => g.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Grinder not found' });
+    }
+    grinders[idx].name = name;
+    grinders[idx].notes = notes || '';
+    fs.writeFileSync(GRINDERS_FILE, JSON.stringify(grinders, null, 2));
+    res.json(grinders[idx]);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update grinder' });
+  }
+});
+
+// Save a new recipe
+app.post('/api/recipes', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(RECIPES_FILE);
+    const data = fs.readFileSync(RECIPES_FILE, 'utf-8');
+    const recipes: Recipe[] = JSON.parse(data);
+    
+    const newRecipe: Recipe = {
+      id: Date.now().toString(),
+      name: req.body.name || 'Custom Recipe',
+      stages: req.body.stages || []
+    };
+    
+    recipes.push(newRecipe);
+    fs.writeFileSync(RECIPES_FILE, JSON.stringify(recipes, null, 2));
+    
+    res.status(201).json(newRecipe);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save recipe' });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Pourover timer server running at http://localhost:${PORT}`);
+});

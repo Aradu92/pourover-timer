@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pourover-data-pvc
+  namespace: pourover-timer
+  labels:
+    app: pourover-timer
+spec:
+  accessModes:
+    - ReadWriteMany  # Allow multiple pods to share data
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard  # Use cloud provider's default storage class

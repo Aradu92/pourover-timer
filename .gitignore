@@ -1,0 +1,24 @@
+node_modules/
+dist/
+
+# Local JSON data used as a file-based DB
+data/*.json
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# Environment (local secrets)
+.env
+
+# Editor
+.vscode/
+.idea/
+
+# Tests/coverage
+coverage/
+
+# Docker overrides
+docker-compose.override.yml

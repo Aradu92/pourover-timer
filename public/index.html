@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pourover Coffee Timer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes pour {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            100% { transform: translateY(20px) scale(0.8); opacity: 0; }
+        }
+        
+        .water-drop {
+            animation: pour 1.5s ease-in infinite;
+        }
+        
+        .water-drop:nth-child(2) {
+            animation-delay: 0.3s;
+        }
+        
+        .water-drop:nth-child(3) {
+            animation-delay: 0.6s;
+        }
+        
+        @keyframes pulse-ring {
+            0%, 100% { opacity: 0.8; }
+            50% { opacity: 1; }
+        }
+        
+        .stage-indicator {
+            transition: all 0.3s ease;
+        }
+        
+        .stage-active {
+            animation: pulse-ring 2s ease-in-out infinite;
+        }
+        
+        .progress-bar-fill {
+            transition: width 0.3s linear;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-amber-50 to-orange-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-4xl">
+        <h1 class="text-4xl font-bold text-center text-amber-900 mb-6">☕ Pourover Timer</h1>
+        
+        <!-- Tab Navigation -->
+        <div class="flex gap-2 mb-6 bg-white rounded-xl shadow-lg p-2">
+            <button id="timer-tab" class="tab-btn flex-1 py-3 px-6 rounded-lg font-bold transition bg-amber-600 text-white">
+                ⏱️ Timer
+            </button>
+            <button id="analytics-tab" class="tab-btn flex-1 py-3 px-6 rounded-lg font-bold transition text-gray-700 hover:bg-gray-100">
+                📊 Analytics
+            </button>
+            <button id="grinders-tab" class="tab-btn flex-1 py-3 px-6 rounded-lg font-bold transition text-gray-700 hover:bg-gray-100">
+                ⚙️ Grinders
+            </button>
+        </div>
+        
+        <!-- Timer Tab Content -->
+        <div id="timer-content" class="tab-content active">
+        <!-- Timer Display -->
+        <div class="bg-white rounded-2xl shadow-2xl p-8 mb-6">
+            <div id="timer-display" class="text-6xl font-bold text-center text-amber-800 mb-4">
+                00:00
+            </div>
+            
+            <!-- Current Instruction -->
+            <div id="instruction" class="text-2xl text-center text-gray-700 font-medium mb-8">
+                Press Start to Begin
+            </div>
+            
+            <!-- Visual Stage Indicator -->
+            <div class="flex justify-center items-center mb-8">
+                <svg width="300" height="300" viewBox="0 0 300 300" class="mx-auto">
+                    <!-- Coffee Dripper Outline -->
+                    <path d="M 75 50 L 100 200 L 200 200 L 225 50 Z" 
+                          fill="none" stroke="#78350f" stroke-width="3"/>
+                    
+                    <!-- Water Level Indicator -->
+                    <clipPath id="dripper-clip">
+                        <path d="M 75 50 L 100 200 L 200 200 L 225 50 Z"/>
+                    </clipPath>
+                    
+                    <rect id="water-level" x="75" y="50" width="150" height="0" 
+                          fill="#3b82f6" opacity="0.4" clip-path="url(#dripper-clip)"/>
+                    
+                    <!-- Stage Indicators (circles) -->
+                    <circle id="stage-1" cx="50" cy="80" r="15" 
+                            class="stage-indicator" fill="#cbd5e1" stroke="#64748b" stroke-width="2"/>
+                    <circle id="stage-2" cx="50" cy="130" r="15" 
+                            class="stage-indicator" fill="#cbd5e1" stroke="#64748b" stroke-width="2"/>
+                    <circle id="stage-3" cx="50" cy="180" r="15" 
+                            class="stage-indicator" fill="#cbd5e1" stroke="#64748b" stroke-width="2"/>
+                    <circle id="stage-4" cx="50" cy="230" r="15" 
+                            class="stage-indicator" fill="#cbd5e1" stroke="#64748b" stroke-width="2"/>
+                    
+                    <!-- Stage Labels -->
+                    <text x="45" y="85" fill="#1e293b" font-size="12" font-weight="bold">1</text>
+                    <text x="45" y="135" fill="#1e293b" font-size="12" font-weight="bold">2</text>
+                    <text x="45" y="185" fill="#1e293b" font-size="12" font-weight="bold">3</text>
+                    <text x="45" y="235" fill="#1e293b" font-size="12" font-weight="bold">4</text>
+                    
+                    <!-- Water Drops (animated during pour) -->
+                    <g id="water-drops" style="display: none;">
+                        <circle class="water-drop" cx="130" cy="30" r="4" fill="#3b82f6"/>
+                        <circle class="water-drop" cx="150" cy="30" r="4" fill="#3b82f6"/>
+                        <circle class="water-drop" cx="170" cy="30" r="4" fill="#3b82f6"/>
+                    </g>
+                </svg>
+            </div>
+            
+            <!-- Progress Bar -->
+            <div class="w-full bg-gray-200 rounded-full h-3 mb-6">
+                <div id="progress-bar" class="progress-bar-fill bg-amber-600 h-3 rounded-full" style="width: 0%"></div>
+            </div>
+            
+            <!-- Control Buttons -->
+            <div class="flex gap-4 justify-center mb-4">
+                <button id="start-btn" 
+                        class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg shadow-lg transition">
+                    Start
+                </button>
+                <button id="reset-btn" 
+                        class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-lg shadow-lg transition">
+                    Reset
+                </button>
+            </div>
+            
+            <!-- Recipe Selector -->
+            <div class="flex gap-2 justify-center">
+                <button id="customize-btn" 
+                        class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg shadow-lg transition text-sm">
+                    ⚙️ Customize Recipe
+                </button>
+            </div>
+        </div>
+        
+        <!-- Recipe Customization Modal (Hidden initially) -->
+        <div id="recipe-modal" class="bg-white rounded-2xl shadow-2xl p-8 mb-6 hidden">
+            <h2 class="text-2xl font-bold text-amber-900 mb-4">Customize Recipe</h2>
+            
+            <div class="mb-4">
+                <label class="block text-gray-700 font-medium mb-2">Recipe Name</label>
+                <input id="recipe-name" type="text" 
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                       placeholder="e.g., V60 Light Roast">
+            </div>
+            
+            <!-- Stage Inputs -->
+            <div class="space-y-3 mb-6">
+                <div class="grid grid-cols-3 gap-2">
+                    <label class="text-gray-700 font-medium text-sm">Stage</label>
+                    <label class="text-gray-700 font-medium text-sm">Time (sec)</label>
+                    <label class="text-gray-700 font-medium text-sm">Water (g)</label>
+                </div>
+                
+                <div class="grid grid-cols-3 gap-2 items-center">
+                    <span class="text-gray-600">1. Bloom</span>
+                    <input type="number" id="stage1-time" value="45" min="1" 
+                           class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="number" id="stage1-water" value="50" min="1" 
+                           class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+                
+                <div class="grid grid-cols-3 gap-2 items-center">
+                    <span class="text-gray-600">2. Pour 2</span>
+                    <input type="number" id="stage2-time" value="45" min="1" 
+                           class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="number" id="stage2-water" value="100" min="1" 
+                           class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+                
+                <div class="grid grid-cols-3 gap-2 items-center">
+                    <span class="text-gray-600">3. Pour 3</span>
+                    <input type="number" id="stage3-time" value="45" min="1" 
+                           class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="number" id="stage3-water" value="100" min="1" 
+                           class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+                
+                <div class="grid grid-cols-3 gap-2 items-center">
+                    <span class="text-gray-600">4. Pour 4</span>
+                    <input type="number" id="stage4-time" value="45" min="1" 
+                           class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <input type="number" id="stage4-water" value="100" min="1" 
+                           class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+            </div>
+            
+            <!-- Saved Recipes Selector -->
+            <div class="mb-6">
+                <label class="block text-gray-700 font-medium mb-2">Load Saved Recipe</label>
+                <select id="saved-recipes" 
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <option value="">-- Select a saved recipe --</option>
+                </select>
+            </div>
+            <!-- Grinders Management (moved to Grinders tab) -->
+            
+            <div class="flex gap-3">
+                <button id="save-recipe-btn" 
+                        class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg shadow-lg transition">
+                    💾 Save Recipe
+                </button>
+                <!-- Removed: legacy grinder save button from recipe modal. Grinders are managed in the Grinders tab -->
+                <button id="apply-recipe-btn" 
+                        class="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg shadow-lg transition">
+                    ✓ Apply
+                </button>
+                <button id="cancel-recipe-btn" 
+                        class="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 rounded-lg shadow-lg transition">
+                    Cancel
+                </button>
+            </div>
+        </div>
+        
+        <!-- Completion Form (Hidden initially) -->
+        <div id="completion-form" class="bg-white rounded-2xl shadow-2xl p-8 hidden">
+            <h2 class="text-2xl font-bold text-amber-900 mb-4">How was your brew? ☕</h2>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Coffee Beans</label>
+                    <input id="beans-input" type="text" 
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                           placeholder="e.g., Ethiopian Yirgacheffe">
+                </div>
+                
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Origin</label>
+                    <select id="origin-input" 
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <option value="">Select origin</option>
+                        <option value="Ethiopia">Ethiopia</option>
+                        <option value="Colombia">Colombia</option>
+                        <option value="Brazil">Brazil</option>
+                        <option value="Kenya">Kenya</option>
+                        <option value="Guatemala">Guatemala</option>
+                        <option value="Costa Rica">Costa Rica</option>
+                        <option value="Panama">Panama</option>
+                        <option value="Peru">Peru</option>
+                        <option value="Rwanda">Rwanda</option>
+                        <option value="Burundi">Burundi</option>
+                        <option value="Indonesia">Indonesia</option>
+                        <option value="Yemen">Yemen</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Roast Level</label>
+                    <select id="roast-input" 
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <option value="">Select roast</option>
+                        <option value="Light">Light</option>
+                        <option value="Light-Medium">Light-Medium</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Medium-Dark">Medium-Dark</option>
+                        <option value="Dark">Dark</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">MASL (Elevation)</label>
+                    <select id="masl-input" 
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <option value="">Select elevation</option>
+                        <option value="<1000m">&lt;1000m</option>
+                        <option value="1000-1500m">1000-1500m</option>
+                        <option value="1500-2000m">1500-2000m</option>
+                        <option value="2000-2500m">2000-2500m</option>
+                        <option value=">2500m">&gt;2500m</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Grinder</label>
+                    <select id="grinder-input" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <option value="">Select grinder</option>
+                    </select>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Grind Size</label>
+                          <input id="grind-size-input" type="number" step="0.1" min="0" max="5000" placeholder="e.g., 5.2"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+                <div class="flex items-end">
+                    <!-- Removed: recipe modal manage grinders (moved to completion form) -->
+                </div>
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-gray-700 font-medium mb-2">Tasting Notes (Optional)</label>
+                <textarea id="notes-input" rows="2" 
+                          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          placeholder="e.g., Fruity, floral, smooth finish..."></textarea>
+            </div>
+            
+            <div class="mb-6">
+                <label class="block text-gray-700 font-medium mb-2">Rating (1-5)</label>
+                <div class="flex gap-2">
+                    <button class="rating-btn text-3xl hover:scale-110 transition" data-rating="1">⭐</button>
+                    <button class="rating-btn text-3xl hover:scale-110 transition" data-rating="2">⭐</button>
+                    <button class="rating-btn text-3xl hover:scale-110 transition" data-rating="3">⭐</button>
+                    <button class="rating-btn text-3xl hover:scale-110 transition" data-rating="4">⭐</button>
+                    <button class="rating-btn text-3xl hover:scale-110 transition" data-rating="5">⭐</button>
+                </div>
+                <input id="rating-value" type="hidden" value="0">
+            </div>
+            
+            <button id="save-brew-btn" 
+                    class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg shadow-lg transition">
+                Save Brew
+            </button>
+            
+            <div id="save-message" class="mt-4 text-center text-green-600 font-medium hidden">
+                Brew saved successfully! ✓
+            </div>
+        </div>
+        
+        <!-- Previous Brews -->
+        <div class="bg-white rounded-2xl shadow-2xl p-8 mt-6">
+            <h2 class="text-2xl font-bold text-amber-900 mb-4">Recent Brews</h2>
+            <div id="brews-list" class="space-y-2">
+                <p class="text-gray-500 text-center">No brews yet</p>
+            </div>
+        </div>
+        </div><!-- End Timer Tab -->
+
+        <!-- Grinders Tab Content -->
+        <div id="grinders-content" class="tab-content hidden">
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h2 class="text-xl font-bold text-amber-900 mb-4">Grinders</h2>
+                <div class="mb-4">
+                    <label class="block text-gray-700 font-medium mb-2">Saved Grinders</label>
+                    <div class="flex gap-2 mb-2">
+                        <select id="saved-grinders-grid" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                            <option value="">-- Select a saved grinder --</option>
+                        </select>
+                        <div class="flex gap-2">
+                            <button id="delete-grinder-btn-grid" class="bg-red-500 hover:bg-red-600 text-white py-2 px-3 rounded">Delete</button>
+                            <button id="edit-grinder-btn-grid" class="bg-yellow-500 hover:bg-yellow-600 text-white py-2 px-3 rounded">Edit</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input id="grinder-name-grid" type="text" placeholder="Grinder name" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <input id="grinder-notes-grid" type="text" placeholder="Notes (optional)" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    </div>
+                    <div class="flex gap-3 mt-4">
+                        <input type="hidden" id="editing-grinder-id" value="">
+                        <button id="save-grinder-btn-grid" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">Save Grinder</button>
+                    </div>
+                </div>
+                <div id="grinders-list" class="mt-4 space-y-2">
+                    <!-- Populated with saved grinders -->
+                </div>
+            </div>
+        </div><!-- End Grinders Tab -->
+        
+        <!-- Analytics Tab Content -->
+        <div id="analytics-content" class="tab-content">
+            <!-- Stats Overview & Chart -->
+            <div class="grid grid-cols-1 md:grid-cols-9 gap-4 mb-6">
+                <div class="bg-white rounded-xl shadow-lg p-6 flex flex-col items-center justify-center">
+                    <div class="text-gray-500 text-sm mb-1">Total Brews</div>
+                    <div id="stat-total" class="text-3xl font-bold text-amber-900">0</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6 flex flex-col items-center justify-center">
+                    <div class="text-gray-500 text-sm mb-1">Average Rating</div>
+                    <div id="stat-avg-rating" class="text-3xl font-bold text-amber-900">-</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6 flex flex-col items-center justify-center">
+                    <div class="text-gray-500 text-sm mb-1">Top Origin</div>
+                    <div id="stat-top-origin" class="text-2xl font-bold text-amber-900">-</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6 flex flex-col items-center justify-center">
+                    <div class="text-gray-500 text-sm mb-1">Favorite Roast</div>
+                    <div id="stat-fav-roast" class="text-2xl font-bold text-amber-900">-</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6 flex flex-col items-center justify-center">
+                    <div class="text-gray-500 text-sm mb-1">Top Recipe</div>
+                    <div id="stat-top-recipe" class="text-2xl font-bold text-amber-900">-</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6 flex flex-col items-center justify-center">
+                    <div class="text-gray-500 text-sm mb-1">Avg Water (g)</div>
+                    <div id="stat-avg-water" class="text-2xl font-bold text-amber-900">-</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6 flex flex-col items-center justify-center">
+                    <div class="text-gray-500 text-sm mb-1">Avg Brew Time (s)</div>
+                    <div id="stat-avg-time" class="text-2xl font-bold text-amber-900">-</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6 flex flex-col items-center justify-center">
+                    <div class="text-gray-500 text-sm mb-1">Top Beans</div>
+                    <div id="stat-top-beans" class="text-2xl font-bold text-amber-900">-</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6 flex flex-col items-center justify-center">
+                    <div class="text-gray-500 text-sm mb-1">Top Grinder</div>
+                    <div id="stat-top-grinder" class="text-2xl font-bold text-amber-900">-</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6 flex flex-col items-center justify-center">
+                    <div class="text-gray-500 text-sm mb-1">Avg Grind</div>
+                    <div id="stat-avg-grind" class="text-2xl font-bold text-amber-900">-</div>
+                </div>
+            </div>
+            <!-- Chart Section -->
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h2 class="text-xl font-bold text-amber-900 mb-4">Brew Analytics</h2>
+                <div class="w-full grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                    <div class="w-full flex justify-center">
+                        <canvas id="analytics-chart" class="w-full max-w-xl h-64"></canvas>
+                    </div>
+                    <div class="w-full flex justify-center">
+                        <canvas id="rating-chart" class="w-full max-w-xs h-64"></canvas>
+                    </div>
+                </div>
+                <div class="w-full mt-4">
+                    <h3 class="text-sm font-medium text-gray-600 mb-2">Brews Over Time</h3>
+                    <div class="w-full flex justify-center">
+                        <canvas id="trend-chart" class="w-full max-w-3xl h-48"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Filters -->
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h2 class="text-xl font-bold text-amber-900 mb-4">Filter & Sort</h2>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <select id="filter-origin" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 w-full">
+                        <option value="">All Origins</option>
+                    </select>
+                    <select id="filter-grinder" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 w-full">
+                        <option value="">All Grinders</option>
+                    </select>
+                    <select id="filter-roast" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 w-full">
+                        <option value="">All Roasts</option>
+                    </select>
+                    <select id="filter-beans" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 w-full">
+                        <option value="">All Beans</option>
+                    </select>
+                    <select id="filter-rating" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 w-full">
+                        <option value="">All Ratings</option>
+                        <option value="5">5 Stars</option>
+                        <option value="4">4+ Stars</option>
+                        <option value="3">3+ Stars</option>
+                    </select>
+                    <select id="sort-by" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 w-full">
+                        <option value="date-desc">Newest First</option>
+                        <option value="date-asc">Oldest First</option>
+                        <option value="rating-desc">Highest Rated</option>
+                        <option value="rating-asc">Lowest Rated</option>
+                    </select>
+                    <button id="analytics-refresh" class="px-4 py-2 rounded-lg bg-amber-600 text-white font-semibold">Refresh</button>
+                    <button id="analytics-export" class="px-4 py-2 rounded-lg bg-gray-700 text-white font-semibold">Export CSV</button>
+                </div>
+            </div>
+            
+            <!-- Detailed Brew Log -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h2 class="text-xl font-bold text-amber-900 mb-4">Detailed Brew Log</h2>
+                <div id="analytics-brews-list" class="space-y-4">
+                    <p class="text-gray-500 text-center py-8">No brews to display</p>
+                </div>
+            </div>
+            
+            <!-- Insights -->
+            <div class="bg-white rounded-xl shadow-lg p-6 mt-6">
+                <h2 class="text-xl font-bold text-amber-900 mb-4">Insights</h2>
+                <div id="insights-container" class="space-y-3">
+                    <p class="text-gray-500 text-center py-4">Start brewing to see insights!</p>
+                </div>
+            </div>
+        </div><!-- End Analytics Tab -->
+    </div>
+    
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="timer.js"></script>
+</body>
+</html>
