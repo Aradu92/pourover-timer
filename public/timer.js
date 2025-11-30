@@ -71,60 +71,27 @@ function updateDisplay() {
     const instruction = document.getElementById('instruction');
     const progressBar = document.getElementById('progress-bar');
     
-    if (timerDisplay) {
-        timerDisplay.textContent = formatTime(timeRemaining);
-    }
-    
-    if (instruction && currentStageIndex < pourStages.length) {
-        instruction.textContent = pourStages[currentStageIndex].instruction;
-    }
-    
-    // Update progress bar smoothly using total elapsed time
-    const progress = (totalElapsed / totalDuration) * 100;
-    if (progressBar) {
-        progressBar.style.width = `${Math.min(progress, 100)}%`;
-    }
-}
-
-function computeDefaultBeansUsed() {
-    // default coffee ratio 1:16 (coffee : water). Calculate total water from current recipe
-    const total = pourStages.reduce((s, st) => s + (st.waterAmount || 0), 0);
-    const grams = total / 16;
-    return Math.round(grams * 10) / 10; // 1 decimal
-}
-
-function updateStageIndicators() {
-    console.log('Updating stage indicators for stage:', currentStageIndex);
-    // Update stage circles
-    for (let i = 0; i < 4; i++) {
-        const circle = document.getElementById(`stage-${i + 1}`);
-        if (circle) {
-            if (i < currentStageIndex) {
-                // Completed stage
-                circle.setAttribute('fill', '#22c55e');
-                circle.classList.remove('stage-active');
-            } else if (i === currentStageIndex) {
-                // Current stage
-                circle.setAttribute('fill', '#f59e0b');
-                circle.classList.add('stage-active');
-            } else {
-                // Future stage
-                circle.setAttribute('fill', '#cbd5e1');
-                circle.classList.remove('stage-active');
-            }
+    // Update timer text
+    if (timerDisplay) timerDisplay.textContent = formatTime(timeRemaining);
+    // Update instruction text
+    if (instruction) {
+        if (isRunning && pourStages[currentStageIndex]) {
+            instruction.textContent = pourStages[currentStageIndex].instruction || pourStages[currentStageIndex].name;
+        } else if (!isRunning) {
+            instruction.textContent = 'Press Start to Begin';
         }
     }
-    
-    // Update water level animation
-    const waterLevel = document.getElementById('water-level');
-    if (waterLevel && currentStageIndex < pourStages.length) {
-        const stage = pourStages[currentStageIndex];
-        const stageProgress = (stage.duration - timeRemaining) / stage.duration;
-        const height = Math.min(stageProgress * 150, 150);
-        waterLevel.setAttribute('height', height.toString());
-        waterLevel.setAttribute('y', (200 - height).toString());
+    // Update stage progress bar (percent complete for current stage)
+    if (progressBar) {
+        const stageDuration = (pourStages[currentStageIndex] && pourStages[currentStageIndex].duration) || 0;
+        let pct = 0;
+        if (stageDuration > 0) {
+            pct = Math.max(0, Math.min(100, Math.round(((stageDuration - timeRemaining) / stageDuration) * 100)));
+        }
+        progressBar.style.width = `${pct}%`;
     }
     
+    // Show/hide water drops during active pouring
     // Show/hide water drops during active pouring
     const waterDrops = document.getElementById('water-drops');
     if (waterDrops) {
@@ -133,6 +100,40 @@ function updateStageIndicators() {
         } else {
             waterDrops.style.display = 'none';
         }
+    }
+}
+
+// Update the visual stage indicators, water level and related UI elements
+function updateStageIndicators() {
+    // Update stage circles
+    for (let i = 0; i < 4; i++) {
+        const circle = document.getElementById(`stage-${i + 1}`);
+        if (!circle) continue;
+        if (i < currentStageIndex) {
+            circle.setAttribute('fill', '#22c55e'); // green for completed
+            circle.classList.add('stage-complete');
+            circle.classList.remove('stage-active');
+        } else if (i === currentStageIndex && isRunning) {
+            circle.setAttribute('fill', '#fb923c'); // amber for active
+            circle.classList.add('stage-active');
+            circle.classList.remove('stage-complete');
+        } else {
+            circle.setAttribute('fill', '#cbd5e1');
+            circle.classList.remove('stage-active');
+            circle.classList.remove('stage-complete');
+        }
+    }
+
+    // Update overall water level progress
+    const waterLevel = document.getElementById('water-level');
+    if (waterLevel && Array.isArray(pourStages) && pourStages.length > 0) {
+        const maxHeight = 150; // px of the dripper inner area (y 50 -> 200)
+        const total = pourStages.reduce((s, p) => s + (p.duration || 0), 0);
+        const elapsed = Math.max(0, Math.min(total, totalElapsed));
+        const pct = total === 0 ? 0 : (elapsed / total);
+        const heightPx = Math.round(maxHeight * pct);
+        waterLevel.setAttribute('height', `${heightPx}`);
+        waterLevel.setAttribute('y', `${200 - heightPx}`);
     }
 }
 
@@ -490,6 +491,7 @@ async function loadGrinders() {
         console.log('Loaded grinders:', grinders);
         const savedGrinders = document.getElementById('saved-grinders-grid');
         const grinderInput = document.getElementById('grinder-input');
+        let appendCount = 0;
         if (savedGrinders) {
             savedGrinders.innerHTML = '<option value="">-- Select a saved grinder --</option>';
             grinders.forEach(g => {
@@ -507,27 +509,27 @@ async function loadGrinders() {
         // Populate grinders-list for easy management
         const grindersList = document.getElementById('grinders-list');
         if (grindersList) {
+            grindersList.innerHTML = '';
             // grinders list population proceeds here - no beans tab listener here
             grinders.forEach(g => {
+                console.log('Appending grinder to list:', g.id, g.name);
                 const row = document.createElement('div');
+                row.dataset.id = g.id;
                 row.className = 'flex justify-between items-center p-2 border rounded-md';
                 row.innerHTML = `
                     <div><strong>${g.name}</strong> <span class="text-gray-600 text-sm">${g.notes || ''}</span></div>
                     <div class="flex gap-2">
-                        <button class="grinder-edit-btn bg-yellow-400 hover:bg-yellow-500 px-2 py-1 rounded" data-id="${g.id}">Edit</button>
+                        <button class="grinder-edit-btn bg-yellow-400 hover:bg-yellow-500 text-white px-2 py-1 rounded" data-id="${g.id}">Edit</button>
                         <button class="grinder-delete-btn bg-red-500 hover:bg-red-600 px-2 py-1 rounded text-white" data-id="${g.id}">Delete</button>
                     </div>
                 `;
                 grindersList.appendChild(row);
-        if (manageBeansBtn) {
-            manageBeansBtn.addEventListener('click', () => {
-                const bTab = document.getElementById('beans-tab');
-                if (bTab) bTab.click();
-                loadBeans();
-            });
-        }
+                appendCount++;
             });
 
+            // DEBUG: show appended row names to console
+            console.log('Grinders currently in DOM:', Array.from(grindersList.children).map(n => (n.textContent || '').trim()));
+            console.log('Appended', appendCount, 'grinders to grindersList');
             // attach list button handlers
             const listEditBtns = grindersList.querySelectorAll('.grinder-edit-btn');
             listEditBtns.forEach(btn => {
@@ -598,8 +600,15 @@ async function loadBeans() {
         const beansList = document.getElementById('beans-list');
         if (beansList) {
             beansList.innerHTML = '';
+            let beansAppended = 0;
             beans.forEach(b => {
+                // Skip duplicates if the beans list already contains this id
+                if (beansList.querySelector(`[data-id="${b.id}"]`)) {
+                    console.log('Skipping duplicate bean', b.id, b.name);
+                    return;
+                }
                 const row = document.createElement('div');
+                row.dataset.id = b.id;
                 row.className = 'p-2 border rounded flex items-center justify-between gap-2';
                 const pct = b.bagSize && b.remaining !== undefined ? Math.max(0, Math.min(100, Math.round((b.remaining / b.bagSize) * 100))) : 0;
                 row.innerHTML = `
@@ -611,12 +620,14 @@ async function loadBeans() {
                         </div>
                     </div>
                     <div class="flex gap-2">
-                        <button class="bean-edit-btn bg-yellow-400 hover:bg-yellow-500 px-2 py-1 rounded" data-id="${b.id}">Edit</button>
+                        <button class="bean-edit-btn bg-yellow-400 hover:bg-yellow-500 text-white px-2 py-1 rounded" data-id="${b.id}">Edit</button>
                         <button class="bean-delete-btn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded" data-id="${b.id}">Delete</button>
                     </div>
                 `;
                 beansList.appendChild(row);
+                beansAppended++;
             });
+            console.log('Appended', beansAppended, 'beans to beansList');
             // hook list buttons
             beansList.querySelectorAll('.bean-edit-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
@@ -1144,12 +1155,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (manageGrindersBtn) {
         manageGrindersBtn.addEventListener('click', () => {
-            // open the Grinders tab instead of showing a recipe modal
-            const gTab = document.getElementById('grinders-tab');
-            if (gTab) {
-                gTab.click();
+            if (grindersTab) {
+                setActiveTab(grindersTab);
+                showContent(grindersContent);
             }
             loadGrinders();
+        });
+    }
+    if (manageBeansBtn) {
+        manageBeansBtn.addEventListener('click', () => {
+            if (beansTab) {
+                setActiveTab(beansTab);
+                showContent(beansContent);
+            }
+            loadBeans();
         });
     }
     
@@ -1163,41 +1182,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const grindersContent = document.getElementById('grinders-content');
     const beansContent = document.getElementById('beans-content');
     
+    function setActiveTab(activeBtn) {
+        const tabs = [timerTab, analyticsTab, grindersTab, beansTab];
+        tabs.forEach(t => {
+            if (!t) return;
+            t.classList.remove('bg-amber-600', 'text-white');
+            t.classList.add('text-gray-700', 'hover:bg-gray-100');
+        });
+        if (activeBtn) {
+            activeBtn.classList.add('bg-amber-600', 'text-white');
+            activeBtn.classList.remove('text-gray-700', 'hover:bg-gray-100');
+        }
+    }
+    function showContent(activeContent) {
+        const contents = [timerContent, analyticsContent, grindersContent, beansContent];
+        contents.forEach(c => { if (c) c.classList.remove('active'); });
+        if (activeContent) activeContent.classList.add('active');
+    }
+
     if (timerTab) {
         timerTab.addEventListener('click', () => {
-            // Update button styles
-            timerTab.classList.add('bg-amber-600', 'text-white');
-            timerTab.classList.remove('text-gray-700', 'hover:bg-gray-100');
-            analyticsTab.classList.remove('bg-amber-600', 'text-white');
-            analyticsTab.classList.add('text-gray-700', 'hover:bg-gray-100');
-            if (grindersTab) {
-                grindersTab.classList.remove('bg-amber-600', 'text-white');
-                grindersTab.classList.add('text-gray-700', 'hover:bg-gray-100');
-            }
-            
-            // Toggle content visibility
-            timerContent.classList.add('active');
-            analyticsContent.classList.remove('active');
-            if (grindersContent) grindersContent.classList.remove('active');
+            setActiveTab(timerTab);
+            showContent(timerContent);
         });
     }
     
     if (analyticsTab) {
         analyticsTab.addEventListener('click', () => {
-            // Update button styles
-            analyticsTab.classList.add('bg-amber-600', 'text-white');
-            analyticsTab.classList.remove('text-gray-700', 'hover:bg-gray-100');
-            timerTab.classList.remove('bg-amber-600', 'text-white');
-            timerTab.classList.add('text-gray-700', 'hover:bg-gray-100');
-            if (grindersTab) {
-                grindersTab.classList.remove('bg-amber-600', 'text-white');
-                grindersTab.classList.add('text-gray-700', 'hover:bg-gray-100');
-            }
-            
-            // Toggle content visibility
-            analyticsContent.classList.add('active');
-            timerContent.classList.remove('active');
-            if (grindersContent) grindersContent.classList.remove('active');
+            setActiveTab(analyticsTab);
+            showContent(analyticsContent);
             
             // Load analytics data
             refreshAnalytics();
@@ -1217,55 +1230,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (grindersTab) {
         grindersTab.addEventListener('click', () => {
-            // Update button styles
-            grindersTab.classList.add('bg-amber-600', 'text-white');
-            grindersTab.classList.remove('text-gray-700', 'hover:bg-gray-100');
-
-            // Revert other tabs
-            if (analyticsTab) {
-                analyticsTab.classList.remove('bg-amber-600', 'text-white');
-                analyticsTab.classList.add('text-gray-700', 'hover:bg-gray-100');
-            }
-            if (timerTab) {
-                timerTab.classList.remove('bg-amber-600', 'text-white');
-                timerTab.classList.add('text-gray-700', 'hover:bg-gray-100');
-            }
-
-            // Toggle content visibility
-            grindersContent.classList.add('active');
-            if (analyticsContent) analyticsContent.classList.remove('active');
-            if (timerContent) timerContent.classList.remove('active');
-
-            // Load grinders
+            setActiveTab(grindersTab);
+            showContent(grindersContent);
             loadGrinders();
         });
     }
     if (beansTab) {
         beansTab.addEventListener('click', () => {
             console.log('Beans tab clicked');
-            beansTab.classList.add('bg-amber-600', 'text-white');
-            beansTab.classList.remove('text-gray-700', 'hover:bg-gray-100');
-
-            if (analyticsTab) {
-                analyticsTab.classList.remove('bg-amber-600', 'text-white');
-                analyticsTab.classList.add('text-gray-700', 'hover:bg-gray-100');
-            }
-            if (timerTab) {
-                timerTab.classList.remove('bg-amber-600', 'text-white');
-                timerTab.classList.add('text-gray-700', 'hover:bg-gray-100');
-            }
-            if (grindersTab) {
-                grindersTab.classList.remove('bg-amber-600', 'text-white');
-                grindersTab.classList.add('text-gray-700', 'hover:bg-gray-100');
-            }
-
-            // Toggle content visibility
-            if (beansContent) beansContent.classList.add('active');
-            if (analyticsContent) analyticsContent.classList.remove('active');
-            if (timerContent) timerContent.classList.remove('active');
-            if (grindersContent) grindersContent.classList.remove('active');
-
-            loadBeans();
+                setActiveTab(beansTab);
+                showContent(beansContent);
+                loadBeans();
         });
     }
     
