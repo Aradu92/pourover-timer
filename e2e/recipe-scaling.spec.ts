@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test';
 
 test('apply recipe and scale pours using planned beans', async ({ page }) => {
-  // Open the app
-  await page.goto('/');
+  let recipeId = '';
+  try {
+    // Open the app
+    await page.goto('/');
 
   // Open the Customize modal
   await page.click('#customize-btn');
@@ -23,6 +25,7 @@ test('apply recipe and scale pours using planned beans', async ({ page }) => {
   // Load saved recipe and apply it
   // Choose the saved recipe by text, get its value then select it
   const optionValue = await page.locator(`#saved-recipes option:has-text("${recipeName}")`).first().getAttribute('value');
+  recipeId = optionValue || '';
   if (optionValue) await page.selectOption('#saved-recipes', optionValue);
   await page.click('#apply-recipe-btn');
 
@@ -41,4 +44,12 @@ test('apply recipe and scale pours using planned beans', async ({ page }) => {
   await page.waitForTimeout(200);
   const inst = await page.locator('#instruction').innerText();
   expect(inst).toMatch(/45|Pour 1: 45/);
+
+  return;
+  } finally {
+    // Cleanup: delete created recipe
+    try {
+      if (recipeId) await page.request.delete(`/api/recipes/${recipeId}`);
+    } catch (err) { console.warn('Cleanup recipe-scaling test failed', err); }
+  }
 });

@@ -9,7 +9,7 @@ export default defineConfig({
   }
   ,
   webServer: {
-    command: 'npm run start',
+    command: 'node ./scripts/start-with-temp-data.js',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000

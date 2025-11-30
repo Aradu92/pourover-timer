@@ -1,7 +1,10 @@
 import { test, expect } from '@playwright/test';
 
 test('quick log saves a brew and decrements bean remaining', async ({ page }) => {
-  await page.goto('/');
+  let beanId = '';
+  let createdBrewIds: string[] = [];
+  try {
+    await page.goto('/');
   // Create bean via Beans tab
   const beanName = 'QuickLogBean ' + Date.now();
   await page.click('#beans-tab');
@@ -24,6 +27,7 @@ test('quick log saves a brew and decrements bean remaining', async ({ page }) =>
   await page.waitForSelector('#completion-form', { state: 'visible' });
   // Select saved bean
   const optVal = await page.locator(`#saved-beans option:has-text("${beanName}")`).getAttribute('value');
+  beanId = optVal || '';
   if (optVal) await page.selectOption('#saved-beans', optVal);
   await page.fill('#beans-used-input', '25');
   // Save
@@ -37,4 +41,21 @@ test('quick log saves a brew and decrements bean remaining', async ({ page }) =>
   await expect(beanRow).toBeVisible();
   const remText = await beanRow.locator('div.text-sm').innerText();
   expect(remText).toContain('275');
+
+  // capture created brews for cleanup
+  const brewsResp = await page.request.get('/api/brews');
+  const brews = await brewsResp.json();
+  const createdBrews = brews.filter((b: any) => b.beanBagId === beanId);
+  createdBrewIds = createdBrews.map((b: any) => b.id);
+  expect(createdBrewIds.length).toBeGreaterThanOrEqual(1);
+  return;
+  } finally {
+    // Cleanup: delete created brew(s) and bean
+    try {
+      for (const id of createdBrewIds) {
+        await page.request.delete(`/api/brews/${id}`);
+      }
+      if (beanId) await page.request.delete(`/api/beans/${beanId}`);
+    } catch (err) { console.warn('Cleanup quick-log test failed', err); }
+  }
 });

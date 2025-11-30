@@ -1,7 +1,11 @@
 import { test, expect } from '@playwright/test';
 
 test('scaling a recipe saves the scaled values in the brew payload', async ({ page }) => {
-  await page.goto('/');
+  let beanId = '';
+  let recipeId = '';
+  let createdBrewId = '';
+  try {
+    await page.goto('/');
   // Create a recipe via UI
   await page.click('#customize-btn');
   await page.waitForSelector('#recipe-modal');
@@ -14,6 +18,7 @@ test('scaling a recipe saves the scaled values in the brew payload', async ({ pa
   await page.click('#save-recipe-btn');
   await page.waitForSelector(`#saved-recipes option:has-text("${recipeName}")`, { state: 'attached' });
   const optVal = await page.locator(`#saved-recipes option:has-text("${recipeName}")`).first().getAttribute('value');
+  recipeId = optVal || '';
   if (optVal) await page.selectOption('#saved-recipes', optVal);
   await page.click('#apply-recipe-btn');
   // Set planned beans and quick log the brew
@@ -31,8 +36,8 @@ test('scaling a recipe saves the scaled values in the brew payload', async ({ pa
   await page.click('#quick-log-btn');
   await page.waitForSelector('#completion-form', { state: 'visible' });
   const beanOptVal = await page.locator(`#saved-beans option:has-text("${beanName}")`).getAttribute('value');
+  beanId = beanOptVal || '';
   if (beanOptVal) await page.selectOption('#saved-beans', beanOptVal);
-  const beanId = beanOptVal || '';
   await page.fill('#beans-used-input', '18');
   await page.click('#save-brew-btn');
   // Wait for saved
@@ -44,4 +49,15 @@ test('scaling a recipe saves the scaled values in the brew payload', async ({ pa
   expect(found).toBeDefined();
   // recipe stage waterAmount should be scaled from 50 to 45 (ratio 18/20)
   expect(found.recipe.stages[0].waterAmount).toBe(45);
+
+  if (found && found.id) createdBrewId = found.id;
+  return;
+  } finally {
+    // Cleanup: delete created brew, bean, and recipe
+    try {
+      if (createdBrewId) await page.request.delete(`/api/brews/${createdBrewId}`);
+      if (beanId) await page.request.delete(`/api/beans/${beanId}`);
+      if (recipeId) await page.request.delete(`/api/recipes/${recipeId}`);
+    } catch (err) { console.warn('Cleanup save-brew-scaled test failed', err); }
+  }
 });
