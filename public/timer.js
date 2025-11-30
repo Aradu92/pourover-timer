@@ -1188,6 +1188,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const startBtn = document.getElementById('start-btn');
     const resetBtn = document.getElementById('reset-btn');
+    const quickLogBtn = document.getElementById('quick-log-btn');
     const saveBrewBtn = document.getElementById('save-brew-btn');
     const ratingBtns = document.querySelectorAll('.rating-btn');
     const customizeBtn = document.getElementById('customize-btn');
@@ -1229,6 +1230,14 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (resetBtn) {
         resetBtn.addEventListener('click', resetTimer);
+    }
+    if (quickLogBtn) {
+        quickLogBtn.addEventListener('click', () => {
+            console.log('Quick Log button clicked - opening completion form');
+            // Ensure the timer isn't accidentally left running
+            if (isRunning) pauseTimer();
+            showCompletionForm();
+        });
     }
     
     if (saveBrewBtn) {
