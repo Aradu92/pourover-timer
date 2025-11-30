@@ -365,6 +365,13 @@ async function showCompletionForm() {
             if (opt && opt.dataset.bean) {
                 const bean = JSON.parse(opt.dataset.bean);
                 beansInput.value = bean.name || beansInput.value;
+                // populate metadata fields directly (in case change handler wasn't attached)
+                const originInput = document.getElementById('origin-input');
+                const roastInput = document.getElementById('roast-input');
+                const maslInput = document.getElementById('masl-input');
+                if (bean.origin && originInput) originInput.value = bean.origin;
+                if (bean.roast && roastInput) roastInput.value = bean.roast;
+                if (bean.masl && maslInput) maslInput.value = bean.masl;
             }
         }
         // If user typed bean name and matches a saved bag, select it in the select box
@@ -389,12 +396,84 @@ async function showCompletionForm() {
                         savedBeansSelect.value = opt.value;
                         beansInput.value = bean.name;
                         if (beansUsedInput) beansUsedInput.value = '' + computeDefaultBeansUsed();
+                        const originInput = document.getElementById('origin-input');
+                        const roastInput = document.getElementById('roast-input');
+                        const maslInput = document.getElementById('masl-input');
+                        if (bean.origin && originInput) originInput.value = bean.origin;
+                        if (bean.roast && roastInput) roastInput.value = bean.roast;
+                        if (bean.masl && maslInput) maslInput.value = bean.masl;
                     }
                 } catch (err) {
                     console.warn('Could not parse bean dataset for opt', opt, err);
                 }
             }
         }
+        // Ensure save button has an attached handler in case DOMContentLoaded wiring failed
+        // client-side validation for grindSize range
+        if (grindSize !== null && (isNaN(grindSize) || grindSize < 0 || grindSize > 5000)) {
+            return alert('Please enter a valid grind size between 0 and 5000.');
+        }
+        if (!beanBagId && beans && window._beanMap) {
+            const nameToMatch = beans.trim().toLowerCase();
+            const found = Object.values(window._beanMap).find(b => (b.name || '').trim().toLowerCase() === nameToMatch);
+            if (found) {
+                beanBagId = found.id;
+                console.log('Mapped typed bean name to saved beanBagId:', beanBagId);
+            }
+        }
+        try {
+            const saveBrewBtnEl = document.getElementById('save-brew-btn');
+            if (saveBrewBtnEl && !saveBrewBtnEl.dataset.saveAttached) {
+                saveBrewBtnEl.addEventListener('click', handleSaveBrewClick);
+                saveBrewBtnEl.dataset.saveAttached = 'true';
+            }
+        } catch (err) {
+            console.warn('Could not attach save handler in showCompletionForm', err);
+        }
+    }
+}
+
+// Central handler for the Save Brew button — extracted so it can be attached reliably
+async function handleSaveBrewClick() {
+    console.log('Save Brew button clicked');
+    const beansInput = document.getElementById('beans-input');
+    const ratingValue = document.getElementById('rating-value');
+    const beans = beansInput?.value || 'Unknown';
+    const rating = parseInt(ratingValue?.value || '0');
+    const originInput = document.getElementById('origin-input');
+    const roastInput = document.getElementById('roast-input');
+    const maslInput = document.getElementById('masl-input');
+    const notesInput = document.getElementById('notes-input');
+    const grinderInput = document.getElementById('grinder-input');
+    const grindSizeInput = document.getElementById('grind-size-input');
+
+    const origin = originInput?.value || '';
+    const roast = roastInput?.value || '';
+    const masl = maslInput?.value || '';
+    const notes = notesInput?.value || '';
+    const grinder = grinderInput?.value || '';
+    const rawGrindSize = grindSizeInput?.value;
+    const grindSize = (rawGrindSize !== undefined && rawGrindSize !== null && rawGrindSize !== '') ? parseFloat(rawGrindSize) : undefined;
+    const savedBeansSelect = document.getElementById('saved-beans');
+    let beanBagId = savedBeansSelect?.value || '';
+    const beansUsedInput = document.getElementById('beans-used-input');
+    let beansUsed = (beansUsedInput?.value && beansUsedInput.value !== '') ? parseFloat(beansUsedInput.value) : computeDefaultBeansUsed();
+
+    try {
+        console.log('Saving brew payload (pre):', { beans, rating, origin, roast, masl, grinder, grindSize, beanBagId, beansUsed });
+        // Allow saving even if rating is zero to avoid accidental blocking of save
+        // (rating is optional)
+        try {
+            const saveBtnEl = document.getElementById('save-brew-btn');
+            if (saveBtnEl) saveBtnEl.disabled = true;
+            await saveBrew(beans, rating, origin, roast, masl, notes, grinder, grindSize, beanBagId, beansUsed);
+        } finally {
+            try { const saveBtnEl2 = document.getElementById('save-brew-btn'); if (saveBtnEl2) saveBtnEl2.disabled = false; } catch (e) {}
+        }
+        return;
+    } catch (err) {
+        console.error('Error handling Save Brew click', err);
+        alert('Error saving brew (see console)');
     }
 }
 
@@ -451,24 +530,27 @@ async function saveBrew(beans, rating, origin, roast, masl, notes, grinder, grin
     };
     
     try {
+        // Build body and omit null/invalid fields to avoid server validation errors
+        const payload = {
+            beans,
+            rating: parseInt(rating) || 0,
+            origin,
+            roast,
+            masl,
+            grinder,
+            beanBagId: beanBagId || undefined,
+            notes,
+            recipe: recipeData
+        };
+        if (grindSize !== null && grindSize !== undefined && !isNaN(grindSize)) payload.grindSize = grindSize;
+        if (beansUsed !== null && beansUsed !== undefined && !isNaN(beansUsed)) payload.beansUsed = beansUsed;
+
         const response = await fetch('http://localhost:3000/api/brews', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ 
-                beans, 
-                rating,
-                origin,
-                roast,
-                masl,
-                grinder,
-                grindSize,
-                beanBagId,
-                beansUsed,
-                notes,
-                recipe: recipeData
-            })
+            body: JSON.stringify(payload)
         });
         
         if (response.ok) {
@@ -485,7 +567,17 @@ async function saveBrew(beans, rating, origin, roast, masl, notes, grinder, grin
             // Update beans inventory list after saving
             loadBeans();
         } else {
-            console.error('Failed to save brew, status:', response.status);
+            let bodyText = '';
+            try {
+                const data = await response.json();
+                bodyText = JSON.stringify(data);
+                console.error('Failed to save brew, status:', response.status, data);
+                alert('Failed to save brew: ' + (data.error || bodyText));
+            } catch (err) {
+                bodyText = await response.text();
+                console.error('Failed to save brew, status:', response.status, bodyText);
+                alert('Failed to save brew: ' + bodyText);
+            }
         }
     } catch (error) {
         console.error('Error saving brew:', error);
@@ -580,7 +672,7 @@ async function loadRecipes() {
         const response = await fetch('http://localhost:3000/api/recipes');
         const recipes = await response.json();
         console.log('Loaded recipes:', recipes);
-        
+
         const savedRecipes = document.getElementById('saved-recipes');
         if (savedRecipes) {
             savedRecipes.innerHTML = '<option value="">-- Select a saved recipe --</option>';
@@ -592,33 +684,27 @@ async function loadRecipes() {
                 savedRecipes.appendChild(option);
             });
             // reset editing state to avoid accidental overwrites
-            document.getElementById('editing-recipe-id').value = '';
+            const editingRecipeField = document.getElementById('editing-recipe-id');
+            if (editingRecipeField) editingRecipeField.value = '';
             editingRecipeId = null;
-            // If user typed bean name and matches a saved bag, select it in the select box
+            const saveBtn = document.getElementById('save-recipe-btn');
             if (saveBtn) saveBtn.textContent = 'Save Recipe';
         }
     } catch (error) {
         console.error('Error loading recipes:', error);
     }
-        const savedGrindersGridSelect = document.getElementById('saved-grinders-grid');
-        if (savedGrindersGridSelect) {
-            savedGrindersGridSelect.innerHTML = '<option value="">-- Select a saved grinder --</option>';
-            // Load grinders here if needed
-        }
 }
 
 // Load grinders
-let editingGrinderId = null;
-
 async function loadGrinders() {
     console.log('Loading grinders...');
     try {
         const response = await fetch('http://localhost:3000/api/grinders');
         const grinders = await response.json();
         console.log('Loaded grinders:', grinders);
+
         const savedGrinders = document.getElementById('saved-grinders-grid');
         const grinderInput = document.getElementById('grinder-input');
-        let appendCount = 0;
         if (savedGrinders) {
             savedGrinders.innerHTML = '<option value="">-- Select a saved grinder --</option>';
             grinders.forEach(g => {
@@ -630,16 +716,14 @@ async function loadGrinders() {
             });
         }
         if (grinderInput) {
-            // populate grinder select in completion form
             grinderInput.innerHTML = '<option value="">Select grinder</option>' + grinders.map(g => `<option value="${g.name}">${g.name}</option>`).join('');
         }
-        // Populate grinders-list for easy management
+
         const grindersList = document.getElementById('grinders-list');
         if (grindersList) {
             grindersList.innerHTML = '';
-            // grinders list population proceeds here - no beans tab listener here
+            let appendCount = 0;
             grinders.forEach(g => {
-                console.log('Appending grinder to list:', g.id, g.name);
                 const row = document.createElement('div');
                 row.dataset.id = g.id;
                 row.className = 'flex justify-between items-center p-2 border rounded-md';
@@ -653,42 +737,25 @@ async function loadGrinders() {
                 grindersList.appendChild(row);
                 appendCount++;
             });
-
-            // DEBUG: show appended row names to console
-            console.log('Grinders currently in DOM:', Array.from(grindersList.children).map(n => (n.textContent || '').trim()));
-            console.log('Appended', appendCount, 'grinders to grindersList');
-            // attach list button handlers
-            const listEditBtns = grindersList.querySelectorAll('.grinder-edit-btn');
-            listEditBtns.forEach(btn => {
+            // attach handlers
+            grindersList.querySelectorAll('.grinder-edit-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const id = e.currentTarget.getAttribute('data-id');
-                    if (!id) return;
                     const sel = document.getElementById('saved-grinders-grid');
-                    if (sel) {
-                        sel.value = id;
-                        editGrinder();
-                    }
+                    if (sel) { sel.value = id; editGrinder(); }
                 });
             });
-            const listDeleteBtns = grindersList.querySelectorAll('.grinder-delete-btn');
-            listDeleteBtns.forEach(btn => {
+            grindersList.querySelectorAll('.grinder-delete-btn').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     const id = e.currentTarget.getAttribute('data-id');
                     if (!id) return;
-                    const sel = document.getElementById('saved-grinders-grid');
-                    if (sel) sel.value = id;
+                    const sel = document.getElementById('saved-grinders-grid'); if (sel) sel.value = id;
                     await deleteGrinder();
                 });
             });
         }
-        // reset editing state
-        const editingField = document.getElementById('editing-grinder-id');
-        if (editingField) editingField.value = '';
-        editingGrinderId = null;
-        const saveBtn = document.getElementById('save-grinder-btn-grid');
-        if (saveBtn) saveBtn.textContent = 'Save Grinder';
-    } catch (error) {
-        console.error('Error loading grinders:', error);
+    } catch (err) {
+        console.error('Error loading grinders:', err);
     }
 }
 
@@ -701,6 +768,7 @@ async function loadBeans() {
         console.log('Loaded beans:', beans);
         const savedBeansSelect = document.getElementById('saved-beans');
         const savedBeansGrid = document.getElementById('saved-beans-grid');
+        // Populate saved-beans select and datalist
         if (savedBeansSelect) {
             savedBeansSelect.innerHTML = '<option value="">-- Select saved bag --</option>';
             const datalist = document.getElementById('beans-datalist');
@@ -718,6 +786,7 @@ async function loadBeans() {
                 }
             });
         }
+        // Populate saved-beans grid select
         if (savedBeansGrid) {
             savedBeansGrid.innerHTML = '<option value="">-- Select a bean bag --</option>';
             beans.forEach(b => {
@@ -727,6 +796,29 @@ async function loadBeans() {
                 opt.dataset.bean = JSON.stringify(b);
                 savedBeansGrid.appendChild(opt);
             });
+        }
+        // Avoid registering duplicate listeners if refreshAnalytics runs repeatedly
+        if (savedBeansSelect && !savedBeansSelect.dataset.changeAttached) {
+            savedBeansSelect.addEventListener('change', (e) => {
+                const opt = e.target.options[e.target.selectedIndex];
+                if (opt && opt.dataset.bean) {
+                    const bean = JSON.parse(opt.dataset.bean);
+                    const beansInput = document.getElementById('beans-input');
+                    if (beansInput) beansInput.value = bean.name;
+                    // Set default beans used if possible
+                    const beansUsedInput = document.getElementById('beans-used-input');
+                    if (beansUsedInput) beansUsedInput.value = '' + computeDefaultBeansUsed();
+                    // Populate completion form metadata if present
+                    const originInput = document.getElementById('origin-input');
+                    const roastInput = document.getElementById('roast-input');
+                    const maslInput = document.getElementById('masl-input');
+                    if (bean.origin && originInput) originInput.value = bean.origin;
+                    if (bean.roast && roastInput) roastInput.value = bean.roast;
+                    if (bean.masl && maslInput) maslInput.value = bean.masl;
+                }
+                console.log('savedBeans select changed ->', savedBeansSelect.value, (savedBeansSelect.options[savedBeansSelect.selectedIndex] && savedBeansSelect.options[savedBeansSelect.selectedIndex].dataset.bean));
+            });
+            savedBeansSelect.dataset.changeAttached = 'true';
         }
         // update a global bean map for CSV/export lookups and general use
         window._beanMap = {};
@@ -790,17 +882,20 @@ async function saveBean() {
     const bagSizeInput = document.getElementById('bean-bag-size-grid');
     const name = nameInput?.value?.trim();
     const bagSize = parseFloat(bagSizeInput?.value) || 0;
+    const remainingStr = document.getElementById('bean-remaining-grid')?.value;
+    const remaining = remainingStr !== undefined && remainingStr !== '' ? parseFloat(remainingStr) : undefined;
     const origin = document.getElementById('bean-origin-grid')?.value || '';
     const roast = document.getElementById('bean-roast-grid')?.value || '';
     const masl = document.getElementById('bean-masl-grid')?.value || '';
     if (!name || !bagSize) return alert('Please enter bean name and bag size');
+    if (remaining !== undefined && (isNaN(remaining) || remaining < 0 || remaining > bagSize)) return alert('Please enter a valid remaining value between 0 and the bag size');
     const editingId = document.getElementById('editing-bean-id')?.value || null;
     try {
         let resp;
         if (editingId) {
-            resp = await fetch(`http://localhost:3000/api/beans/${editingId}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, bagSize, origin, roast, masl}) });
+            resp = await fetch(`http://localhost:3000/api/beans/${editingId}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, bagSize, remaining, origin, roast, masl}) });
         } else {
-            resp = await fetch('http://localhost:3000/api/beans', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, bagSize, origin, roast, masl}) });
+            resp = await fetch('http://localhost:3000/api/beans', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, bagSize, remaining, origin, roast, masl}) });
         }
         if (resp.ok) {
             nameInput.value = '';
@@ -828,6 +923,7 @@ async function editBean() {
     const beanData = JSON.parse(selected.dataset.bean);
     document.getElementById('bean-name-grid').value = beanData.name || '';
     document.getElementById('bean-bag-size-grid').value = beanData.bagSize || '';
+    document.getElementById('bean-remaining-grid').value = beanData.remaining || '';
     document.getElementById('bean-origin-grid').value = beanData.origin || '';
     document.getElementById('bean-roast-grid').value = beanData.roast || '';
     document.getElementById('bean-masl-grid').value = beanData.masl || '';
@@ -1136,61 +1232,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     if (saveBrewBtn) {
-        saveBrewBtn.addEventListener('click', () => {
-            console.log('Save Brew button clicked');
-            const beansInput = document.getElementById('beans-input');
-            const ratingValue = document.getElementById('rating-value');
-            
-            const beans = beansInput?.value || 'Unknown';
-            const rating = parseInt(ratingValue?.value || '0');
-            
-            const originInput = document.getElementById('origin-input');
-            const roastInput = document.getElementById('roast-input');
-            const maslInput = document.getElementById('masl-input');
-            const notesInput = document.getElementById('notes-input');
-            const grinderInput = document.getElementById('grinder-input');
-            const grindSizeInput = document.getElementById('grind-size-input');
-
-            const origin = originInput?.value || '';
-            const roast = roastInput?.value || '';
-            const masl = maslInput?.value || '';
-            const notes = notesInput?.value || '';
-            const grinder = grinderInput?.value || '';
-            const grindSize = parseFloat(grindSizeInput?.value) || null;
-            const savedBeansSelect = document.getElementById('saved-beans');
-            let beanBagId = savedBeansSelect?.value || '';
-            const beansUsedInput = document.getElementById('beans-used-input');
-            let beansUsed = beansUsedInput?.value ? parseFloat(beansUsedInput.value) : null;
-            if (beansUsed === null || isNaN(beansUsed)) {
-                // compute default beans used: total water / 16 ratio
-                beansUsed = computeDefaultBeansUsed();
-            }
-
-            try {
-                console.log('Saving brew payload (pre):', { beans, rating, origin, roast, masl, grinder, grindSize, beanBagId, beansUsed });
-                if (rating > 0) {
-                // client-side validation for grindSize range
-                if (grindSize !== null && (isNaN(grindSize) || grindSize < 0 || grindSize > 5000)) {
-                    return alert('Please enter a valid grind size between 0 and 5000.');
-                }
-                    // If no beanBagId provided but beans matches a saved bag name, map to the bag id
-                    if (!beanBagId && beans && window._beanMap) {
-                        const nameToMatch = beans.trim().toLowerCase();
-                        const found = Object.values(window._beanMap).find(b => (b.name || '').trim().toLowerCase() === nameToMatch);
-                        if (found) {
-                            beanBagId = found.id;
-                            console.log('Mapped typed bean name to saved beanBagId:', beanBagId);
-                        }
-                    }
-                    saveBrew(beans, rating, origin, roast, masl, notes, grinder, grindSize, beanBagId, beansUsed);
-                } else {
-                alert('Please select a rating');
-                }
-            } catch (err) {
-                console.error('Error handling Save Brew click', err);
-                alert('Error saving brew (see console)');
+        // Attach central handler and mark attached to avoid duplicate binding
+        if (!saveBrewBtn.dataset.saveAttached) {
+            saveBrewBtn.addEventListener('click', handleSaveBrewClick);
+            saveBrewBtn.dataset.saveAttached = 'true';
+        }
+        console.log('saveBrewBtn.dataset.saveAttached (DOMContentLoaded):', saveBrewBtn.dataset.saveAttached);
+    }
+    // Fallback: delegate clicks for dynamic button (in case the button is replaced)
+    if (!document.body.dataset.saveDelegateAttached) {
+        document.body.addEventListener('click', (e) => {
+            const target = e.target;
+            if (!target) return;
+            // If the event target is the button or any descendant, ensure we don't double-invoke
+            const btn = target.id === 'save-brew-btn' ? target : target.closest('#save-brew-btn');
+            if (btn) {
+                // If the element itself has an attached handler, do not call via delegation
+                if (btn.dataset && btn.dataset.saveAttached) return;
+                handleSaveBrewClick();
             }
         });
+        document.body.dataset.saveDelegateAttached = 'true';
+        console.log('document.body.dataset.saveDelegateAttached:', document.body.dataset.saveDelegateAttached);
     }
     
     // Rating button handlers
@@ -1552,49 +1615,7 @@ function populateAnalyticsFilters(brews) {
             }
         });
     }
-    const savedBeansSelect = document.getElementById('saved-beans');
-    if (savedBeansSelect) {
-        savedBeansSelect.addEventListener('change', (e) => {
-            const opt = e.target.options[e.target.selectedIndex];
-            if (opt && opt.dataset.bean) {
-                const bean = JSON.parse(opt.dataset.bean);
-                const beansInput = document.getElementById('beans-input');
-                if (beansInput) beansInput.value = bean.name;
-                // Set default beans used if possible
-                const beansUsedInput = document.getElementById('beans-used-input');
-                if (beansUsedInput) beansUsedInput.value = '' + computeDefaultBeansUsed();
-                // Populate completion form metadata if present
-                const originInput = document.getElementById('origin-input');
-                const roastInput = document.getElementById('roast-input');
-                const maslInput = document.getElementById('masl-input');
-                if (bean.origin && originInput) originInput.value = bean.origin;
-                if (bean.roast && roastInput) roastInput.value = bean.roast;
-                if (bean.masl && maslInput) maslInput.value = bean.masl;
-            }
-            console.log('savedBeans select changed ->', savedBeansSelect.value, (savedBeansSelect.options[savedBeansSelect.selectedIndex] && savedBeansSelect.options[savedBeansSelect.selectedIndex].dataset.bean));
-        });
-        // setup mapping from typed bean name to savedBeans select
-        const beansInputEl = document.getElementById('beans-input');
-        if (beansInputEl) {
-            beansInputEl.addEventListener('input', (e) => {
-                const typed = (e.target.value || '').trim().toLowerCase();
-                if (!typed) return;
-                const opt = Array.from(savedBeansSelect.options).find(o => {
-                    if (!o || !o.dataset || !o.dataset.bean) return false;
-                    try {
-                        const b = JSON.parse(o.dataset.bean);
-                        return (b.name || '').trim().toLowerCase().startsWith(typed);
-                    } catch (err) {
-                        return (o.textContent || '').toLowerCase().includes(typed);
-                    }
-                });
-                if (opt) {
-                    savedBeansSelect.value = opt.value;
-                    savedBeansSelect.dispatchEvent(new Event('change'));
-                }
-            });
-        }
-    }
+    // saved-beans select and input mapping are handled in loadBeans(); no further wiring required here
 }
 
 function renderAnalyticsChart(brews) {

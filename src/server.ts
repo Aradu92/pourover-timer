@@ -89,6 +89,7 @@ app.get('/api/brews', (req: Request, res: Response) => {
 
 // Save a new brew
 app.post('/api/brews', (req: Request, res: Response) => {
+  console.log('POST /api/brews payload:', JSON.stringify(req.body));
   try {
     ensureDataFile(DATA_FILE);
     const data = fs.readFileSync(DATA_FILE, 'utf-8');
