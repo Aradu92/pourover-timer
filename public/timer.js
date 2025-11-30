@@ -439,6 +439,11 @@ async function loadRecipes() {
                 option.dataset.recipe = JSON.stringify(recipe);
                 savedRecipes.appendChild(option);
             });
+            // reset editing state to avoid accidental overwrites
+            document.getElementById('editing-recipe-id').value = '';
+            editingRecipeId = null;
+            const saveBtn = document.getElementById('save-recipe-btn');
+            if (saveBtn) saveBtn.textContent = 'Save Recipe';
         }
     } catch (error) {
         console.error('Error loading recipes:', error);
@@ -601,6 +606,7 @@ async function editGrinder() {
     if (saveBtn) saveBtn.textContent = 'Update Grinder';
 }
 
+let editingRecipeId = null;
 async function saveRecipe() {
     console.log('Saving recipe...');
     const recipeName = document.getElementById('recipe-name').value || 'Custom Recipe';
@@ -629,6 +635,49 @@ async function saveRecipe() {
     ];
     
     try {
+        // If editingRecipeId is set, update instead of creating a new one
+        const existingId = document.getElementById('editing-recipe-id')?.value || editingRecipeId;
+        if (existingId) {
+                    // If no editing id is set, check if a recipe with the same name and stages exists
+                    // to avoid creating duplicates when user saves an unchanged recipe.
+                    try {
+                        const checkResp = await fetch('http://localhost:3000/api/recipes');
+                        if (checkResp.ok) {
+                            const recipes = await checkResp.json();
+                            const matching = recipes.find(r => r.name === recipeName && JSON.stringify(r.stages) === JSON.stringify(stages));
+                            if (matching) {
+                                // Update the matching recipe rather than create a new one
+                                const response = await fetch(`http://localhost:3000/api/recipes/${matching.id}`, {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ name: recipeName, stages })
+                                });
+                                if (response.ok) {
+                                    alert('Recipe updated successfully (match by content)');
+                                    loadRecipes();
+                                    return;
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.warn('Error checking for duplicate recipe before create', err);
+                    }
+            // Update
+            const response = await fetch(`http://localhost:3000/api/recipes/${existingId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: recipeName, stages })
+            });
+            if (response.ok) {
+                alert('Recipe updated successfully');
+                document.getElementById('editing-recipe-id').value = '';
+                editingRecipeId = null;
+                loadRecipes();
+                return;
+            } else {
+                console.error('Failed to update recipe');
+            }
+        }
         const response = await fetch('http://localhost:3000/api/recipes', {
             method: 'POST',
             headers: {
@@ -706,6 +755,11 @@ function loadRecipeFromSelect() {
         console.log('Loading recipe:', recipe);
         
         document.getElementById('recipe-name').value = recipe.name;
+        document.getElementById('editing-recipe-id').value = recipe.id;
+        editingRecipeId = recipe.id;
+        // Adjust button to indicate editing
+        const saveBtn = document.getElementById('save-recipe-btn');
+        if (saveBtn) saveBtn.textContent = 'Update Recipe';
         
         recipe.stages.forEach((stage, idx) => {
             document.getElementById(`stage${idx + 1}-time`).value = stage.duration;
@@ -832,6 +886,35 @@ document.addEventListener('DOMContentLoaded', () => {
     if (saveRecipeBtn) {
         saveRecipeBtn.addEventListener('click', saveRecipe);
     }
+    const deleteRecipeBtn = document.getElementById('delete-recipe-btn');
+    if (deleteRecipeBtn) {
+        deleteRecipeBtn.addEventListener('click', async () => {
+            const savedRecipes = document.getElementById('saved-recipes');
+            if (!savedRecipes || !savedRecipes.value) return alert('Select a recipe to delete');
+            if (!confirm('Are you sure you want to delete this recipe?')) return;
+            try {
+                const id = savedRecipes.value;
+                console.log('Attempting to delete recipe id=', id);
+                const resp = await fetch(`http://localhost:3000/api/recipes/${id}`, { method: 'DELETE' });
+                console.log('Delete response status:', resp.status, resp.statusText);
+                if (resp.ok) {
+                    document.getElementById('editing-recipe-id').value = '';
+                    editingRecipeId = null;
+                    const saveBtn = document.getElementById('save-recipe-btn');
+                    if (saveBtn) saveBtn.textContent = 'Save Recipe';
+                    loadRecipes();
+                    alert('Recipe deleted');
+                } else {
+                    const text = await resp.text();
+                    console.error('Delete recipe failed:', resp.status, text);
+                    alert(`Failed to delete recipe: ${resp.status} ${resp.statusText} - ${text}`);
+                }
+            } catch (err) {
+                console.error('Error deleting recipe', err);
+                alert('Failed to delete recipe (network error, see console)');
+            }
+        });
+    }
     
     if (applyRecipeBtn) {
         applyRecipeBtn.addEventListener('click', applyRecipe);
@@ -894,10 +977,15 @@ document.addEventListener('DOMContentLoaded', () => {
             timerTab.classList.remove('text-gray-700', 'hover:bg-gray-100');
             analyticsTab.classList.remove('bg-amber-600', 'text-white');
             analyticsTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+            if (grindersTab) {
+                grindersTab.classList.remove('bg-amber-600', 'text-white');
+                grindersTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+            }
             
             // Toggle content visibility
             timerContent.classList.add('active');
             analyticsContent.classList.remove('active');
+            if (grindersContent) grindersContent.classList.remove('active');
         });
     }
     
@@ -908,10 +996,15 @@ document.addEventListener('DOMContentLoaded', () => {
             analyticsTab.classList.remove('text-gray-700', 'hover:bg-gray-100');
             timerTab.classList.remove('bg-amber-600', 'text-white');
             timerTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+            if (grindersTab) {
+                grindersTab.classList.remove('bg-amber-600', 'text-white');
+                grindersTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+            }
             
             // Toggle content visibility
             analyticsContent.classList.add('active');
             timerContent.classList.remove('active');
+            if (grindersContent) grindersContent.classList.remove('active');
             
             // Load analytics data
             refreshAnalytics();
@@ -1120,14 +1213,15 @@ function renderAnalyticsChart(brews) {
             }
         ]
     };
+    const ratingColorsMap = { '5': '#16a34a', '4': '#22c55e', '3': '#f59e0b', '2': '#f97316', '1': '#ef4444' };
     const ratingData = {
         labels: Object.keys(ratingCounts).map(r => r + ' Stars'),
         datasets: [
             {
                 label: 'Rating Distribution',
                 data: Object.values(ratingCounts),
-                backgroundColor: 'rgba(59, 130, 246, 0.7)',
-                borderColor: 'rgba(59, 130, 246, 1)',
+                backgroundColor: Object.keys(ratingCounts).map(k => ratingColorsMap[k] || 'rgba(59, 130, 246, 0.7)'),
+                borderColor: Object.keys(ratingCounts).map(k => ratingColorsMap[k] ? ratingColorsMap[k] : 'rgba(59, 130, 246, 1)'),
                 borderWidth: 2,
             }
         ]

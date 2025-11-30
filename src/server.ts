@@ -236,10 +236,55 @@ app.post('/api/recipes', (req: Request, res: Response) => {
     
     recipes.push(newRecipe);
     fs.writeFileSync(RECIPES_FILE, JSON.stringify(recipes, null, 2));
-    
+    console.log(`Saved new recipe id=${newRecipe.id} name=${newRecipe.name}`);
     res.status(201).json(newRecipe);
   } catch (error) {
     res.status(500).json({ error: 'Failed to save recipe' });
+  }
+});
+
+// Update an existing recipe
+app.put('/api/recipes/:id', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(RECIPES_FILE);
+    const data = fs.readFileSync(RECIPES_FILE, 'utf-8');
+    const recipes: Recipe[] = JSON.parse(data);
+    const { id } = req.params;
+    const { name, stages } = req.body;
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({ error: 'Invalid recipe name' });
+    }
+    const idx = recipes.findIndex(r => r.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Recipe not found' });
+    }
+    recipes[idx].name = name;
+    recipes[idx].stages = stages || [];
+    fs.writeFileSync(RECIPES_FILE, JSON.stringify(recipes, null, 2));
+    console.log(`Updated recipe id=${recipes[idx].id} name=${recipes[idx].name}`);
+    res.json(recipes[idx]);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update recipe' });
+  }
+});
+
+// Delete a recipe by ID
+app.delete('/api/recipes/:id', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(RECIPES_FILE);
+    const data = fs.readFileSync(RECIPES_FILE, 'utf-8');
+    let recipes: Recipe[] = JSON.parse(data);
+        const id = req.params.id;
+        console.log(`DELETE /api/recipes/${id} requested`);
+        const origLen = recipes.length;
+        recipes = recipes.filter(r => r.id !== id);
+        if (recipes.length === origLen) {
+          return res.status(404).json({ error: 'Recipe not found' });
+        }
+    fs.writeFileSync(RECIPES_FILE, JSON.stringify(recipes, null, 2));
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete recipe' });
   }
 });
 

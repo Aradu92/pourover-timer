@@ -208,10 +208,12 @@
             <!-- Grinders Management (moved to Grinders tab) -->
             
             <div class="flex gap-3">
+                <input type="hidden" id="editing-recipe-id" value="">
                 <button id="save-recipe-btn" 
                         class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg shadow-lg transition">
                     💾 Save Recipe
                 </button>
+                <button id="delete-recipe-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded">Delete</button>
                 <!-- Removed: legacy grinder save button from recipe modal. Grinders are managed in the Grinders tab -->
                 <button id="apply-recipe-btn" 
                         class="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-lg shadow-lg transition">
