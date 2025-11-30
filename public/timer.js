@@ -199,8 +199,9 @@ function renderStageSetupInputs() {
 
 function nextStage() {
     console.log('Moving to next stage from:', currentStageIndex);
-        timerInterval = window.setInterval(tick, 1000);
-        console.log('Interval started:', timerInterval);
+    // Advance stage index
+    currentStageIndex++;
+    // We don't re-create the tick interval here; the running interval handles ticks
     console.log('New stage index:', currentStageIndex);
     
     if (currentStageIndex < pourStages.length) {
@@ -338,21 +339,27 @@ function resetTimer() {
     console.log('Timer reset complete');
 }
 
-function showCompletionForm() {
+async function showCompletionForm() {
     console.log('Showing completion form');
     const form = document.getElementById('completion-form');
     if (form) {
         form.classList.remove('hidden');
         playBeep();
         setTimeout(() => playBeep(), 500);
+        // refresh the saved beans select so we can auto-select a default
+        try { await loadBeans(); } catch (err) { console.warn('loadBeans failed on modal show', err); }
         // Pre-populate beans-used input based on current recipe when the form is shown
-        const beansUsedInput = document.getElementById('beans-used-input');
+        let beansUsedInput = document.getElementById('beans-used-input');
         if (beansUsedInput && (!beansUsedInput.value || beansUsedInput.value === '')) {
             beansUsedInput.value = '' + computeDefaultBeansUsed();
         }
         // If a saved bean is selected, populate bean name input
         const savedBeansSelect = document.getElementById('saved-beans');
         const beansInput = document.getElementById('beans-input');
+        if (savedBeansSelect) {
+            console.log('savedBeansSelect options count on form show:', savedBeansSelect.options.length);
+            console.log('savedBeansSelect first options:', Array.from(savedBeansSelect.options).map(o => o.textContent));
+        }
         if (savedBeansSelect && savedBeansSelect.value && beansInput) {
             const opt = savedBeansSelect.options[savedBeansSelect.selectedIndex];
             if (opt && opt.dataset.bean) {
@@ -369,6 +376,23 @@ function showCompletionForm() {
                 // trigger change behavior to set beansUsed input if needed
                 const evt = new Event('change');
                 savedBeansSelect.dispatchEvent(evt);
+            }
+        }
+        // If there is no beansInput value but there are saved bean options, pick the first available bag with remaining
+        // reuse beansUsedInput variable
+        if (savedBeansSelect && beansInput && (!beansInput.value || beansInput.value === '')) {
+            const opt = Array.from(savedBeansSelect.options).find(o => o.value && o.dataset.bean);
+            if (opt) {
+                try {
+                    const bean = JSON.parse(opt.dataset.bean);
+                    if (bean && bean.name) {
+                        savedBeansSelect.value = opt.value;
+                        beansInput.value = bean.name;
+                        if (beansUsedInput) beansUsedInput.value = '' + computeDefaultBeansUsed();
+                    }
+                } catch (err) {
+                    console.warn('Could not parse bean dataset for opt', opt, err);
+                }
             }
         }
     }
@@ -1526,6 +1550,27 @@ function populateAnalyticsFilters(brews) {
             }
             console.log('savedBeans select changed ->', savedBeansSelect.value, (savedBeansSelect.options[savedBeansSelect.selectedIndex] && savedBeansSelect.options[savedBeansSelect.selectedIndex].dataset.bean));
         });
+        // setup mapping from typed bean name to savedBeans select
+        const beansInputEl = document.getElementById('beans-input');
+        if (beansInputEl) {
+            beansInputEl.addEventListener('input', (e) => {
+                const typed = (e.target.value || '').trim().toLowerCase();
+                if (!typed) return;
+                const opt = Array.from(savedBeansSelect.options).find(o => {
+                    if (!o || !o.dataset || !o.dataset.bean) return false;
+                    try {
+                        const b = JSON.parse(o.dataset.bean);
+                        return (b.name || '').trim().toLowerCase().startsWith(typed);
+                    } catch (err) {
+                        return (o.textContent || '').toLowerCase().includes(typed);
+                    }
+                });
+                if (opt) {
+                    savedBeansSelect.value = opt.value;
+                    savedBeansSelect.dispatchEvent(new Event('change'));
+                }
+            });
+        }
     }
 }
 
