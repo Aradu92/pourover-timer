@@ -106,7 +106,8 @@ function updateDisplay() {
 // Update the visual stage indicators, water level and related UI elements
 function updateStageIndicators() {
     // Update stage circles
-    for (let i = 0; i < 4; i++) {
+    const totalStages = (Array.isArray(pourStages) && pourStages.length) ? pourStages.length : 4;
+    for (let i = 0; i < totalStages; i++) {
         const circle = document.getElementById(`stage-${i + 1}`);
         if (!circle) continue;
         if (i < currentStageIndex) {
@@ -134,6 +135,65 @@ function updateStageIndicators() {
         const heightPx = Math.round(maxHeight * pct);
         waterLevel.setAttribute('height', `${heightPx}`);
         waterLevel.setAttribute('y', `${200 - heightPx}`);
+    }
+}
+
+// Render the stage indicator circles and labels dynamically inside the SVG
+function renderStageIndicators() {
+    const group = document.getElementById('stage-indicators');
+    if (!group) return;
+    // Clear existing
+    while (group.firstChild) group.removeChild(group.firstChild);
+    const totalStages = (Array.isArray(pourStages) && pourStages.length) ? pourStages.length : 4;
+    const topY = 80;
+    const span = 150; // matches original layout (80 -> 230)
+    const spacing = totalStages > 1 ? span / (totalStages - 1) : 0;
+    for (let i = 0; i < totalStages; i++) {
+        const y = totalStages === 1 ? (topY + span / 2) : Math.round(topY + i * spacing);
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('id', `stage-${i + 1}`);
+        circle.setAttribute('cx', '50');
+        circle.setAttribute('cy', `${y}`);
+        circle.setAttribute('r', '15');
+        circle.setAttribute('fill', '#cbd5e1');
+        circle.setAttribute('stroke', '#64748b');
+        circle.setAttribute('stroke-width', '2');
+        circle.classList.add('stage-indicator');
+        group.appendChild(circle);
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', '45');
+        text.setAttribute('y', `${y + 5}`);
+        text.setAttribute('fill', '#1e293b');
+        text.setAttribute('font-size', '12');
+        text.setAttribute('font-weight', 'bold');
+        text.textContent = `${i + 1}`;
+        group.appendChild(text);
+    }
+}
+
+// Manage recipe setup inputs (show/hide based on stage-count selection)
+function renderStageSetupInputs() {
+    const stageCountSel = document.getElementById('stage-count');
+    const cnt = parseInt((stageCountSel && stageCountSel.value) || '4');
+    for (let i = 1; i <= 5; i++) {
+        const row = document.getElementById(`stage-row-${i}`) || document.getElementById(`stage-row-${i}`);
+        // For first 4 inputs, HTML structure uses grid rows without id, so fall back to known nodes
+        if (!row) {
+            // For rows 1-4, find by index: they are the inputs in the order defined. If not found, continue
+            continue;
+        }
+        if (i <= cnt) {
+            row.classList.remove('hidden');
+            // Update labels for naming
+            const label = row.querySelector('span');
+            if (label) {
+                if (i === 1) label.textContent = `${i}. Bloom`;
+                else if (i === cnt && i > 1) label.textContent = `${i}. Final Pour`;
+                else label.textContent = `${i}. Pour ${i}`;
+            }
+        } else {
+            row.classList.add('hidden');
+        }
     }
 }
 
@@ -257,7 +317,8 @@ function resetTimer() {
     }
     
     // Reset stage indicators
-    for (let i = 0; i < 4; i++) {
+    const totalStages = (Array.isArray(pourStages) && pourStages.length) ? pourStages.length : 4;
+    for (let i = 0; i < totalStages; i++) {
         const circle = document.getElementById(`stage-${i + 1}`);
         if (circle) {
             circle.setAttribute('fill', '#cbd5e1');
@@ -792,28 +853,19 @@ async function saveRecipe() {
     console.log('Saving recipe...');
     const recipeName = document.getElementById('recipe-name').value || 'Custom Recipe';
     
-    const stages = [
-        {
-            name: 'Bloom',
-            duration: parseInt(document.getElementById('stage1-time').value) || 45,
-            waterAmount: parseInt(document.getElementById('stage1-water').value) || 50
-        },
-        {
-            name: 'First Pour',
-            duration: parseInt(document.getElementById('stage2-time').value) || 45,
-            waterAmount: parseInt(document.getElementById('stage2-water').value) || 100
-        },
-        {
-            name: 'Second Pour',
-            duration: parseInt(document.getElementById('stage3-time').value) || 45,
-            waterAmount: parseInt(document.getElementById('stage3-water').value) || 100
-        },
-        {
-            name: 'Final Pour',
-            duration: parseInt(document.getElementById('stage4-time').value) || 45,
-            waterAmount: parseInt(document.getElementById('stage4-water').value) || 100
-        }
-    ];
+    // build stages dynamically based on selected stage-count
+    const stageCount = parseInt((document.getElementById('stage-count') && document.getElementById('stage-count').value) || '4');
+    const stages = [];
+    for (let i = 1; i <= Math.min(5, Math.max(1, stageCount)); i++) {
+        const timeEl = document.getElementById(`stage${i}-time`);
+        const waterEl = document.getElementById(`stage${i}-water`);
+        const dur = timeEl ? parseInt(timeEl.value) || 45 : 45;
+        const water = waterEl ? parseInt(waterEl.value) || 100 : 100;
+        let name = 'Pour ' + i;
+        if (i === 1) name = 'Bloom';
+        if (i === stageCount && i > 1) name = 'Final Pour';
+        stages.push({ name, duration: dur, waterAmount: water });
+    }
     
     try {
         // If editingRecipeId is set, update instead of creating a new one
@@ -883,35 +935,25 @@ async function saveRecipe() {
 function applyRecipe() {
     console.log('Applying recipe...');
     
-    // Update pourStages from form inputs
-    pourStages = [
-        {
-            name: 'Bloom',
-            duration: parseInt(document.getElementById('stage1-time').value) || 45,
-            waterAmount: parseInt(document.getElementById('stage1-water').value) || 50,
-            instruction: `Pour 1: ${document.getElementById('stage1-water').value || 50} grams (Bloom)`
-        },
-        {
-            name: 'First Pour',
-            duration: parseInt(document.getElementById('stage2-time').value) || 45,
-            waterAmount: parseInt(document.getElementById('stage2-water').value) || 100,
-            instruction: `Pour 2: ${document.getElementById('stage2-water').value || 100} grams`
-        },
-        {
-            name: 'Second Pour',
-            duration: parseInt(document.getElementById('stage3-time').value) || 45,
-            waterAmount: parseInt(document.getElementById('stage3-water').value) || 100,
-            instruction: `Pour 3: ${document.getElementById('stage3-water').value || 100} grams`
-        },
-        {
-            name: 'Final Pour',
-            duration: parseInt(document.getElementById('stage4-time').value) || 45,
-            waterAmount: parseInt(document.getElementById('stage4-water').value) || 100,
-            instruction: `Pour 4: ${document.getElementById('stage4-water').value || 100} grams`
-        }
-    ];
+    // Update pourStages from form inputs (dynamic, can support 1-5 pours)
+    const stageCount = parseInt((document.getElementById('stage-count') && document.getElementById('stage-count').value) || '4');
+    const newStages = [];
+    for (let i = 1; i <= Math.min(5, Math.max(1, stageCount)); i++) {
+        const timeEl = document.getElementById(`stage${i}-time`);
+        const waterEl = document.getElementById(`stage${i}-water`);
+        const dur = timeEl ? parseInt(timeEl.value) || 45 : 45;
+        const water = waterEl ? parseInt(waterEl.value) || 100 : 100;
+        let name = `Pour ${i}`;
+        if (i === 1) name = 'Bloom';
+        if (i === stageCount && i > 1) name = 'Final Pour';
+        const instruction = `Pour ${i}: ${water} grams` + (i === 1 ? ' (Bloom)' : '');
+        newStages.push({ name, duration: dur, waterAmount: water, instruction });
+    }
+    pourStages = newStages;
     
     console.log('Recipe applied:', pourStages);
+    // update indicators for new stage count
+    renderStageIndicators();
     
     // Hide recipe modal
     const recipeModal = document.getElementById('recipe-modal');
@@ -942,9 +984,20 @@ function loadRecipeFromSelect() {
         const saveBtn = document.getElementById('save-recipe-btn');
         if (saveBtn) saveBtn.textContent = 'Update Recipe';
         
+        // Set stage count and populate fields
+        const stageCountSel = document.getElementById('stage-count');
+        const cnt = recipe.stages && recipe.stages.length ? recipe.stages.length : 4;
+        if (stageCountSel) {
+            stageCountSel.value = `${cnt}`;
+        }
+        // Ensure setup inputs reflect desired count
+        if (typeof renderStageSetupInputs === 'function') renderStageSetupInputs();
+        if (typeof renderStageIndicators === 'function') renderStageIndicators();
         recipe.stages.forEach((stage, idx) => {
-            document.getElementById(`stage${idx + 1}-time`).value = stage.duration;
-            document.getElementById(`stage${idx + 1}-water`).value = stage.waterAmount;
+            const timeEl = document.getElementById(`stage${idx + 1}-time`);
+            const waterEl = document.getElementById(`stage${idx + 1}-water`);
+            if (timeEl) timeEl.value = stage.duration;
+            if (waterEl) waterEl.value = stage.waterAmount;
         });
     }
 }
@@ -1289,6 +1342,17 @@ document.addEventListener('DOMContentLoaded', () => {
     loadRecipes();
     loadGrinders();
     loadBeans();
+    // Configure stage count selector to reflect default pourStages length
+    const stageCountSel = document.getElementById('stage-count');
+    if (stageCountSel) {
+        stageCountSel.value = `${(Array.isArray(pourStages) && pourStages.length) ? pourStages.length : 4}`;
+        stageCountSel.addEventListener('change', () => {
+            renderStageSetupInputs();
+            renderStageIndicators();
+        });
+    }
+    renderStageSetupInputs();
+    renderStageIndicators();
     // Pre-populate analytics data so charts/filters are available
     refreshAnalytics();
     

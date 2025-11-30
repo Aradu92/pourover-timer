@@ -97,21 +97,8 @@
                     <rect id="water-level" x="75" y="50" width="150" height="0" 
                           fill="#3b82f6" opacity="0.4" clip-path="url(#dripper-clip)"/>
                     
-                    <!-- Stage Indicators (circles) -->
-                    <circle id="stage-1" cx="50" cy="80" r="15" 
-                            class="stage-indicator" fill="#cbd5e1" stroke="#64748b" stroke-width="2"/>
-                    <circle id="stage-2" cx="50" cy="130" r="15" 
-                            class="stage-indicator" fill="#cbd5e1" stroke="#64748b" stroke-width="2"/>
-                    <circle id="stage-3" cx="50" cy="180" r="15" 
-                            class="stage-indicator" fill="#cbd5e1" stroke="#64748b" stroke-width="2"/>
-                    <circle id="stage-4" cx="50" cy="230" r="15" 
-                            class="stage-indicator" fill="#cbd5e1" stroke="#64748b" stroke-width="2"/>
-                    
-                    <!-- Stage Labels -->
-                    <text x="45" y="85" fill="#1e293b" font-size="12" font-weight="bold">1</text>
-                    <text x="45" y="135" fill="#1e293b" font-size="12" font-weight="bold">2</text>
-                    <text x="45" y="185" fill="#1e293b" font-size="12" font-weight="bold">3</text>
-                    <text x="45" y="235" fill="#1e293b" font-size="12" font-weight="bold">4</text>
+                        <!-- Stage Indicators (generated) -->
+                        <g id="stage-indicators"></g>
                     
                     <!-- Water Drops (animated during pour) -->
                     <g id="water-drops" style="display: none;">
@@ -159,7 +146,17 @@
                        placeholder="e.g., V60 Light Roast">
             </div>
             
-            <!-- Stage Inputs -->
+                <!-- Stage Inputs -->
+                <div class="mb-2 flex items-center gap-2">
+                    <label class="text-gray-700 font-medium mr-2">Number of stages</label>
+                    <select id="stage-count" class="px-2 py-1 border rounded">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4" selected>4</option>
+                        <option value="5">5</option>
+                    </select>
+                </div>
             <div class="space-y-3 mb-6">
                 <div class="grid grid-cols-3 gap-2">
                     <label class="text-gray-700 font-medium text-sm">Stage</label>
@@ -167,7 +164,7 @@
                     <label class="text-gray-700 font-medium text-sm">Water (g)</label>
                 </div>
                 
-                <div class="grid grid-cols-3 gap-2 items-center">
+                <div id="stage-row-1" class="grid grid-cols-3 gap-2 items-center">
                     <span class="text-gray-600">1. Bloom</span>
                     <input type="number" id="stage1-time" value="45" min="1" 
                            class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
@@ -175,7 +172,7 @@
                            class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
                 </div>
                 
-                <div class="grid grid-cols-3 gap-2 items-center">
+                <div id="stage-row-2" class="grid grid-cols-3 gap-2 items-center">
                     <span class="text-gray-600">2. Pour 2</span>
                     <input type="number" id="stage2-time" value="45" min="1" 
                            class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
@@ -183,7 +180,7 @@
                            class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
                 </div>
                 
-                <div class="grid grid-cols-3 gap-2 items-center">
+                <div id="stage-row-3" class="grid grid-cols-3 gap-2 items-center">
                     <span class="text-gray-600">3. Pour 3</span>
                     <input type="number" id="stage3-time" value="45" min="1" 
                            class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
@@ -191,13 +188,21 @@
                            class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
                 </div>
                 
-                <div class="grid grid-cols-3 gap-2 items-center">
+                <div id="stage-row-4" class="grid grid-cols-3 gap-2 items-center">
                     <span class="text-gray-600">4. Pour 4</span>
                     <input type="number" id="stage4-time" value="45" min="1" 
                            class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
                     <input type="number" id="stage4-water" value="100" min="1" 
                            class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
                 </div>
+                
+                  <div class="grid grid-cols-3 gap-2 items-center hidden" id="stage-row-5">
+                      <span class="text-gray-600">5. Pour 5</span>
+                      <input type="number" id="stage5-time" value="45" min="1" 
+                          class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                      <input type="number" id="stage5-water" value="100" min="1" 
+                          class="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                  </div>
             </div>
             
             <!-- Saved Recipes Selector -->
