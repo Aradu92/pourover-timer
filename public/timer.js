@@ -790,18 +790,24 @@ async function saveBean() {
     const bagSizeInput = document.getElementById('bean-bag-size-grid');
     const name = nameInput?.value?.trim();
     const bagSize = parseFloat(bagSizeInput?.value) || 0;
+    const origin = document.getElementById('bean-origin-grid')?.value || '';
+    const roast = document.getElementById('bean-roast-grid')?.value || '';
+    const masl = document.getElementById('bean-masl-grid')?.value || '';
     if (!name || !bagSize) return alert('Please enter bean name and bag size');
     const editingId = document.getElementById('editing-bean-id')?.value || null;
     try {
         let resp;
         if (editingId) {
-            resp = await fetch(`http://localhost:3000/api/beans/${editingId}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, bagSize}) });
+            resp = await fetch(`http://localhost:3000/api/beans/${editingId}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, bagSize, origin, roast, masl}) });
         } else {
-            resp = await fetch('http://localhost:3000/api/beans', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, bagSize}) });
+            resp = await fetch('http://localhost:3000/api/beans', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, bagSize, origin, roast, masl}) });
         }
         if (resp.ok) {
             nameInput.value = '';
             bagSizeInput.value = '';
+                document.getElementById('bean-origin-grid').value = '';
+                document.getElementById('bean-roast-grid').value = '';
+                document.getElementById('bean-masl-grid').value = '';
             if (editingId) document.getElementById('editing-bean-id').value = '';
             loadBeans();
             alert(editingId ? 'Bean bag updated' : 'Bean bag saved');
@@ -822,6 +828,9 @@ async function editBean() {
     const beanData = JSON.parse(selected.dataset.bean);
     document.getElementById('bean-name-grid').value = beanData.name || '';
     document.getElementById('bean-bag-size-grid').value = beanData.bagSize || '';
+    document.getElementById('bean-origin-grid').value = beanData.origin || '';
+    document.getElementById('bean-roast-grid').value = beanData.roast || '';
+    document.getElementById('bean-masl-grid').value = beanData.masl || '';
     document.getElementById('editing-bean-id').value = beanData.id;
     document.getElementById('save-bean-btn-grid').textContent = 'Update Bean';
 }

@@ -59,6 +59,9 @@ interface BeanBag {
   name: string;
   bagSize: number; // grams
   remaining: number; // grams
+  origin?: string;
+  roast?: string;
+  masl?: string;
 }
 
 // Ensure data directory and file exist
@@ -141,6 +144,10 @@ app.post('/api/brews', (req: Request, res: Response) => {
         const idx = beans.findIndex(b => b.id === newBrew.beanBagId);
         if (idx !== -1) {
           beans[idx].remaining = Math.max(0, (beans[idx].remaining || beans[idx].bagSize) - newBrew.beansUsed);
+          // update bean metadata if provided in the brew
+          if (newBrew.origin !== undefined) beans[idx].origin = newBrew.origin || beans[idx].origin || '';
+          if (newBrew.roast !== undefined) beans[idx].roast = newBrew.roast || beans[idx].roast || '';
+          if (newBrew.masl !== undefined) beans[idx].masl = newBrew.masl || beans[idx].masl || '';
           fs.writeFileSync(BEANS_FILE, JSON.stringify(beans, null, 2));
         }
       }
@@ -239,7 +246,7 @@ app.put('/api/beans/:id', (req: Request, res: Response) => {
     const data = fs.readFileSync(BEANS_FILE, 'utf-8');
     const beans: BeanBag[] = JSON.parse(data);
     const { id } = req.params;
-    const { name, bagSize, remaining } = req.body;
+    const { name, bagSize, remaining, origin, roast, masl } = req.body;
     const idx = beans.findIndex(b => b.id === id);
     if (idx === -1) return res.status(404).json({error: 'Bean bag not found'});
     if (name && typeof name === 'string') beans[idx].name = name;
@@ -254,6 +261,9 @@ app.put('/api/beans/:id', (req: Request, res: Response) => {
       if (isNaN(rem) || rem < 0) return res.status(400).json({error: 'Invalid remaining value'});
       beans[idx].remaining = rem;
     }
+    if (origin !== undefined) beans[idx].origin = origin || '';
+    if (roast !== undefined) beans[idx].roast = roast || '';
+    if (masl !== undefined) beans[idx].masl = masl || '';
     fs.writeFileSync(BEANS_FILE, JSON.stringify(beans, null, 2));
     res.json(beans[idx]);
   } catch (error) {
