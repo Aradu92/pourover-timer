@@ -86,6 +86,13 @@ function updateDisplay() {
     }
 }
 
+function computeDefaultBeansUsed() {
+    // default coffee ratio 1:16 (coffee : water). Calculate total water from current recipe
+    const total = pourStages.reduce((s, st) => s + (st.waterAmount || 0), 0);
+    const grams = total / 16;
+    return Math.round(grams * 10) / 10; // 1 decimal
+}
+
 function updateStageIndicators() {
     console.log('Updating stage indicators for stage:', currentStageIndex);
     // Update stage circles
@@ -303,7 +310,7 @@ function hideCompletionForm() {
     });
 }
 
-async function saveBrew(beans, rating, origin, roast, masl, notes, grinder, grindSize) {
+async function saveBrew(beans, rating, origin, roast, masl, notes, grinder, grindSize, beanBagId, beansUsed) {
     console.log('Saving brew:', { beans, rating, origin, roast, masl });
     
     // Capture current recipe
@@ -330,6 +337,8 @@ async function saveBrew(beans, rating, origin, roast, masl, notes, grinder, grin
                 masl,
                 grinder,
                 grindSize,
+                beanBagId,
+                beansUsed,
                 notes,
                 recipe: recipeData
             })
@@ -346,6 +355,8 @@ async function saveBrew(beans, rating, origin, roast, masl, notes, grinder, grin
                 }, 2000);
             }
             loadBrews();
+            // Update beans inventory list after saving
+            loadBeans();
         } else {
             console.error('Failed to save brew, status:', response.status);
         }
@@ -360,6 +371,15 @@ async function loadBrews() {
     try {
         const response = await fetch('http://localhost:3000/api/brews');
         const brews = await response.json();
+        // Also fetch bean bags to map names
+        let beanMap = {};
+        try {
+            const beansResp = await fetch('http://localhost:3000/api/beans');
+            if (beansResp.ok) {
+                const beans = await beansResp.json();
+                beans.forEach(b => { beanMap[b.id] = b; });
+            }
+        } catch (err) { console.warn('Could not fetch bean bags for brew list', err); }
         console.log('Loaded brews:', brews);
         
         const brewsList = document.getElementById('brews-list');
@@ -373,10 +393,14 @@ async function loadBrews() {
                     .map((brew) => {
                         const date = new Date(brew.timestamp).toLocaleDateString();
                         const stars = '⭐'.repeat(brew.rating);
+                        let beanLabel = brew.beans || '';
+                        if (brew.beanBagId && beanMap[brew.beanBagId]) {
+                            beanLabel = `${beanMap[brew.beanBagId].name} • ${brew.beansUsed ? brew.beansUsed + 'g' : ''}`;
+                        }
                         return `
                             <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg group">
                                 <div>
-                                    <span class="font-medium">${brew.beans}</span>
+                                    <span class="font-medium">${beanLabel}</span>
                                     <span class="text-sm text-gray-500 ml-2">${date}</span>
                                     ${brew.grinder ? `<div class="text-xs text-gray-600">Grinder: ${brew.grinder} ${brew.grindSize ? `• ${brew.grindSize}` : ''}</div>` : ''}
                                 </div>
@@ -483,7 +507,35 @@ async function loadGrinders() {
         // Populate grinders-list for easy management
         const grindersList = document.getElementById('grinders-list');
         if (grindersList) {
-            grindersList.innerHTML = '';
+            const beansTab = document.getElementById('beans-tab');
+            const beansContent = document.getElementById('beans-content');
+            if (beansTab) {
+                beansTab.addEventListener('click', () => {
+                    beansTab.classList.add('bg-amber-600', 'text-white');
+                    beansTab.classList.remove('text-gray-700', 'hover:bg-gray-100');
+
+                    if (analyticsTab) {
+                        analyticsTab.classList.remove('bg-amber-600', 'text-white');
+                        analyticsTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+                    }
+                    if (timerTab) {
+                        timerTab.classList.remove('bg-amber-600', 'text-white');
+                        timerTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+                    }
+                    if (grindersTab) {
+                        grindersTab.classList.remove('bg-amber-600', 'text-white');
+                        grindersTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+                    }
+
+                    // Toggle content
+                    if (beansContent) beansContent.classList.add('active');
+                    if (analyticsContent) analyticsContent.classList.remove('active');
+                    if (timerContent) timerContent.classList.remove('active');
+                    if (grindersContent) grindersContent.classList.remove('active');
+
+                    loadBeans();
+                });
+            }
             grinders.forEach(g => {
                 const row = document.createElement('div');
                 row.className = 'flex justify-between items-center p-2 border rounded-md';
@@ -495,6 +547,13 @@ async function loadGrinders() {
                     </div>
                 `;
                 grindersList.appendChild(row);
+        if (manageBeansBtn) {
+            manageBeansBtn.addEventListener('click', () => {
+                const bTab = document.getElementById('beans-tab');
+                if (bTab) bTab.click();
+                loadBeans();
+            });
+        }
             });
 
             // attach list button handlers
@@ -529,6 +588,131 @@ async function loadGrinders() {
         if (saveBtn) saveBtn.textContent = 'Save Grinder';
     } catch (error) {
         console.error('Error loading grinders:', error);
+    }
+}
+
+// Load beans
+async function loadBeans() {
+    console.log('Loading bean bags...');
+    try {
+        const response = await fetch('http://localhost:3000/api/beans');
+        const beans = await response.json();
+        console.log('Loaded beans:', beans);
+        const savedBeansSelect = document.getElementById('saved-beans');
+        const savedBeansGrid = document.getElementById('saved-beans-grid');
+        if (savedBeansSelect) {
+            savedBeansSelect.innerHTML = '<option value="">-- Select saved bag --</option>' + beans.map(b => `<option value="${b.id}" data-bean='${JSON.stringify(b)}'>${b.name} (${b.remaining || b.bagSize}g left)</option>`).join('');
+        }
+        if (savedBeansGrid) {
+            savedBeansGrid.innerHTML = '<option value="">-- Select a bean bag --</option>' + beans.map(b => `<option value="${b.id}" data-bean='${JSON.stringify(b)}'>${b.name} (${Math.round((b.remaining/b.bagSize)*100)}%)</option>`).join('');
+        }
+        // update a global bean map for CSV/export lookups and general use
+        window._beanMap = {};
+        beans.forEach(b => window._beanMap[b.id] = b);
+        const beansList = document.getElementById('beans-list');
+        if (beansList) {
+            beansList.innerHTML = '';
+            beans.forEach(b => {
+                const row = document.createElement('div');
+                row.className = 'p-2 border rounded flex items-center justify-between gap-2';
+                const pct = b.bagSize && b.remaining !== undefined ? Math.max(0, Math.min(100, Math.round((b.remaining / b.bagSize) * 100))) : 0;
+                row.innerHTML = `
+                    <div class="flex-1">
+                        <div class="font-bold">${b.name}</div>
+                        <div class="text-sm text-gray-600">${b.remaining || b.bagSize}g / ${b.bagSize}g</div>
+                        <div class="w-full bg-gray-200 rounded h-2 mt-2">
+                            <div class="bg-amber-600 h-2 rounded" style="width:${pct}%"></div>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="bean-edit-btn bg-yellow-400 hover:bg-yellow-500 px-2 py-1 rounded" data-id="${b.id}">Edit</button>
+                        <button class="bean-delete-btn bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded" data-id="${b.id}">Delete</button>
+                    </div>
+                `;
+                beansList.appendChild(row);
+            });
+            // hook list buttons
+            beansList.querySelectorAll('.bean-edit-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    const sel = document.getElementById('saved-beans-grid');
+                    if (sel) sel.value = id;
+                    editBean();
+                });
+            });
+            beansList.querySelectorAll('.bean-delete-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const id = e.currentTarget.getAttribute('data-id');
+                    if (!id) return;
+                    const sel = document.getElementById('saved-beans-grid'); if (sel) sel.value = id;
+                    await deleteBean();
+                });
+            });
+        }
+    } catch (err) {
+        console.error('Error loading beans', err);
+    }
+}
+
+async function saveBean() {
+    const nameInput = document.getElementById('bean-name-grid');
+    const bagSizeInput = document.getElementById('bean-bag-size-grid');
+    const name = nameInput?.value?.trim();
+    const bagSize = parseFloat(bagSizeInput?.value) || 0;
+    if (!name || !bagSize) return alert('Please enter bean name and bag size');
+    const editingId = document.getElementById('editing-bean-id')?.value || null;
+    try {
+        let resp;
+        if (editingId) {
+            resp = await fetch(`http://localhost:3000/api/beans/${editingId}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, bagSize}) });
+        } else {
+            resp = await fetch('http://localhost:3000/api/beans', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, bagSize}) });
+        }
+        if (resp.ok) {
+            nameInput.value = '';
+            bagSizeInput.value = '';
+            if (editingId) document.getElementById('editing-bean-id').value = '';
+            loadBeans();
+            alert(editingId ? 'Bean bag updated' : 'Bean bag saved');
+        } else {
+            alert('Failed to save bean bag');
+        }
+    } catch (err) {
+        console.error('Error saving bean', err);
+        alert('Failed to save bean bag');
+    }
+}
+
+async function editBean() {
+    const savedBeansGrid = document.getElementById('saved-beans-grid');
+    if (!savedBeansGrid || !savedBeansGrid.value) return alert('Select a bean bag to edit');
+    const selected = savedBeansGrid.options[savedBeansGrid.selectedIndex];
+    if (!selected) return;
+    const beanData = JSON.parse(selected.dataset.bean);
+    document.getElementById('bean-name-grid').value = beanData.name || '';
+    document.getElementById('bean-bag-size-grid').value = beanData.bagSize || '';
+    document.getElementById('editing-bean-id').value = beanData.id;
+    document.getElementById('save-bean-btn-grid').textContent = 'Update Bean';
+}
+
+async function deleteBean() {
+    const sel = document.getElementById('saved-beans-grid');
+    if (!sel || !sel.value) return alert('Select a bean to delete');
+    if (!confirm('Delete this bean bag?')) return;
+    try {
+        const id = sel.value;
+        const resp = await fetch(`http://localhost:3000/api/beans/${id}`, { method: 'DELETE' });
+        if (resp.ok) {
+            document.getElementById('bean-name-grid').value = '';
+            document.getElementById('bean-bag-size-grid').value = '';
+            loadBeans();
+            alert('Bean bag deleted');
+        } else {
+            alert('Failed to delete bean bag');
+        }
+    } catch (err) {
+        console.error('Error deleting bean', err);
+        alert('Failed to delete bean bag');
     }
 }
 
@@ -788,6 +972,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const deleteGrinderBtn = document.getElementById('delete-grinder-btn-grid');
     const editGrinderBtn = document.getElementById('edit-grinder-btn-grid');
     const manageGrindersBtn = document.getElementById('manage-grinders-btn');
+    const manageBeansBtn = document.getElementById('manage-beans-btn');
+    const saveBeanBtn = document.getElementById('save-bean-btn-grid');
+    const deleteBeanBtn = document.getElementById('delete-bean-btn-grid');
+    const editBeanBtn = document.getElementById('edit-bean-btn-grid');
     
     console.log('Elements found:', {
         startBtn: !!startBtn,
@@ -836,13 +1024,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const notes = notesInput?.value || '';
             const grinder = grinderInput?.value || '';
             const grindSize = parseFloat(grindSizeInput?.value) || null;
+            const savedBeansSelect = document.getElementById('saved-beans');
+            const beanBagId = savedBeansSelect?.value || '';
+            const beansUsedInput = document.getElementById('beans-used-input');
+            let beansUsed = beansUsedInput?.value ? parseFloat(beansUsedInput.value) : null;
+            if (!beansUsed) {
+                // compute default beans used: total water / 16 ratio
+                beansUsed = computeDefaultBeansUsed();
+            }
 
             if (rating > 0) {
                 // client-side validation for grindSize range
                 if (grindSize !== null && (isNaN(grindSize) || grindSize < 0 || grindSize > 5000)) {
                     return alert('Please enter a valid grind size between 0 and 5000.');
                 }
-                saveBrew(beans, rating, origin, roast, masl, notes, grinder, grindSize);
+                saveBrew(beans, rating, origin, roast, masl, notes, grinder, grindSize, beanBagId, beansUsed);
             } else {
                 alert('Please select a rating');
             }
@@ -950,6 +1146,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (editGrinderBtn) {
         editGrinderBtn.addEventListener('click', editGrinder);
+    }
+    if (saveBeanBtn) {
+        saveBeanBtn.addEventListener('click', saveBean);
+    }
+    if (deleteBeanBtn) {
+        deleteBeanBtn.addEventListener('click', deleteBean);
+    }
+    if (editBeanBtn) {
+        editBeanBtn.addEventListener('click', editBean);
     }
     if (manageGrindersBtn) {
         manageGrindersBtn.addEventListener('click', () => {
@@ -1089,9 +1294,10 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Load previous brews on page load
     loadBrews();
-    // Load saved recipes and grinders
+    // Load saved recipes, grinders and bean bags
     loadRecipes();
     loadGrinders();
+    loadBeans();
     // Pre-populate analytics data so charts/filters are available
     refreshAnalytics();
     
@@ -1181,6 +1387,31 @@ function populateAnalyticsFilters(brews) {
                 Array.from(grinderSet).map(g => `<option value="${g}">${g}</option>`).join('');
             grinderFilter.value = currentGrinder || '';
         }
+    }
+    const savedBeansGrid = document.getElementById('saved-beans-grid');
+    if (savedBeansGrid) {
+        savedBeansGrid.addEventListener('change', (e) => {
+            const opt = savedBeansGrid.options[savedBeansGrid.selectedIndex];
+            if (opt && opt.dataset.bean) {
+                const bean = JSON.parse(opt.dataset.bean);
+                document.getElementById('bean-name-grid').value = bean.name || '';
+                document.getElementById('bean-bag-size-grid').value = bean.bagSize || '';
+            }
+        });
+    }
+    const savedBeansSelect = document.getElementById('saved-beans');
+    if (savedBeansSelect) {
+        savedBeansSelect.addEventListener('change', (e) => {
+            const opt = e.target.options[e.target.selectedIndex];
+            if (opt && opt.dataset.bean) {
+                const bean = JSON.parse(opt.dataset.bean);
+                const beansInput = document.getElementById('beans-input');
+                if (beansInput) beansInput.value = bean.name;
+                // Set default beans used if possible
+                const beansUsedInput = document.getElementById('beans-used-input');
+                if (beansUsedInput) beansUsedInput.value = '' + computeDefaultBeansUsed();
+            }
+        });
     }
 }
 
@@ -1531,7 +1762,7 @@ function renderAnalyticsList(brews) {
             <div class="bg-white p-4 rounded-lg shadow">
                 <div class="flex justify-between items-start mb-2">
                     <div>
-                        <h3 class="font-semibold text-lg">${brew.beans || 'Unknown Beans'}</h3>
+                        <h3 class="font-semibold text-lg">${brew.beanBagId && window._beanMap && window._beanMap[brew.beanBagId] ? `${window._beanMap[brew.beanBagId].name} • ${brew.beansUsed || ''}g` : (brew.beans || 'Unknown Beans')}</h3>
                         <p class="text-sm text-gray-600">${date}</p>
                     </div>
                     <div class="text-right">
@@ -1579,11 +1810,17 @@ function exportFilteredCsv() {
                 return;
             }
             // Build CSV header
-            const headers = ['id','timestamp','beans','origin','roast','masl','grinder','grindSize','rating','notes','recipe_name','recipe_stages'];
+            const headers = ['id','timestamp','beans','beanBagId','beanBagName','beansUsed','origin','roast','masl','grinder','grindSize','rating','notes','recipe_name','recipe_stages'];
             const rows = filtered.map(b => {
+                // map bean bag name
+                const beanBagId = b.beanBagId || '';
+                let beanName = '';
+                // attempt to map bean bag names via api (synchronously performed earlier)
+                // We'll fetch beans here
+                // (Note: this code is synchronous mapping because we fetch beans above before building rows)
                 const recipeName = b.recipe && b.recipe.name ? b.recipe.name : '';
                 const stages = b.recipe && b.recipe.stages ? b.recipe.stages.map(s => `${s.name}:${s.waterAmount}g@${s.duration}s`).join('|') : '';
-                return [b.id, b.timestamp, b.beans || '', b.origin || '', b.roast || '', b.masl || '', b.grinder || '', b.grindSize || '', b.rating || '', b.notes || '', recipeName, stages];
+                return [b.id, b.timestamp, b.beans || '', beanBagId, (window._beanMap && window._beanMap[beanBagId] ? window._beanMap[beanBagId].name : ''), (b.beansUsed || ''), b.origin || '', b.roast || '', b.masl || '', b.grinder || '', b.grindSize || '', b.rating || '', b.notes || '', recipeName, stages];
             });
             const csv = [headers.join(',')].concat(rows.map(r => r.map(c => '"' + String(c).replace(/"/g,'""') + '"').join(','))).join('\n');
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

@@ -64,6 +64,9 @@
             <button id="grinders-tab" class="tab-btn flex-1 py-3 px-6 rounded-lg font-bold transition text-gray-700 hover:bg-gray-100">
                 ⚙️ Grinders
             </button>
+            <button id="beans-tab" class="tab-btn flex-1 py-3 px-6 rounded-lg font-bold transition text-gray-700 hover:bg-gray-100">
+                🫘 Beans
+            </button>
         </div>
         
         <!-- Timer Tab Content -->
@@ -233,9 +236,14 @@
             <div class="grid grid-cols-2 gap-4 mb-4">
                 <div>
                     <label class="block text-gray-700 font-medium mb-2">Coffee Beans</label>
-                    <input id="beans-input" type="text" 
-                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-                           placeholder="e.g., Ethiopian Yirgacheffe">
+                    <div class="flex gap-2">
+                        <input id="beans-input" type="text" 
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                               placeholder="e.g., Ethiopian Yirgacheffe">
+                        <select id="saved-beans" class="px-3 py-2 border border-gray-300 rounded-lg">
+                            <option value="">-- Select saved bag --</option>
+                        </select>
+                    </div>
                 </div>
                 
                 <div>
@@ -299,8 +307,9 @@
                           <input id="grind-size-input" type="number" step="0.1" min="0" max="5000" placeholder="e.g., 5.2"
                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
                 </div>
-                <div class="flex items-end">
-                    <!-- Removed: recipe modal manage grinders (moved to completion form) -->
+                <div class="flex items-end gap-2">
+                    <input id="beans-used-input" type="number" step="0.1" min="0" placeholder="g used (auto)" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                    <button id="manage-beans-btn" class="ml-auto bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded">Manage Beans</button>
                 </div>
             </div>
             
@@ -371,6 +380,34 @@
                 </div>
             </div>
         </div><!-- End Grinders Tab -->
+        
+        <!-- Beans Tab Content -->
+        <div id="beans-content" class="tab-content hidden">
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h2 class="text-xl font-bold text-amber-900 mb-4">Beans (Bag Inventory)</h2>
+                <div class="mb-4">
+                    <label class="block text-gray-700 font-medium mb-2">Saved Bean Bags</label>
+                    <div class="flex gap-2 mb-2">
+                        <select id="saved-beans-grid" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                            <option value="">-- Select a bean bag --</option>
+                        </select>
+                        <button id="delete-bean-btn-grid" class="bg-red-500 hover:bg-red-600 text-white py-2 px-3 rounded">Delete</button>
+                        <button id="edit-bean-btn-grid" class="bg-yellow-400 hover:bg-yellow-500 text-white py-2 px-3 rounded">Edit</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="hidden" id="editing-bean-id" value="">
+                        <input id="bean-name-grid" type="text" placeholder="Bean name" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <input id="bean-bag-size-grid" type="number" placeholder="Bag size (g)" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    </div>
+                    <div class="flex gap-3 mt-4">
+                        <button id="save-bean-btn-grid" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">Save Bean Bag</button>
+                    </div>
+                </div>
+                <div id="beans-list" class="mt-4 space-y-2">
+                    <!-- Populated with bean bags and progress bars -->
+                </div>
+            </div>
+        </div>
         
         <!-- Analytics Tab Content -->
         <div id="analytics-content" class="tab-content">

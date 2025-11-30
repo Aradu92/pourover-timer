@@ -8,6 +8,7 @@ const PORT = 3000;
 const DATA_FILE = path.join(__dirname, '../data/brews.json');
 const RECIPES_FILE = path.join(__dirname, '../data/recipes.json');
 const GRINDERS_FILE = path.join(__dirname, '../data/grinders.json');
+const BEANS_FILE = path.join(__dirname, '../data/beans.json');
 
 app.use(cors());
 app.use(express.json());
@@ -33,6 +34,8 @@ interface Brew {
   notes?: string;
   grinder?: string;
   grindSize?: number;
+  beanBagId?: string;
+  beansUsed?: number; // grams used in the brew
 }
 
 interface Recipe {
@@ -49,6 +52,13 @@ interface Grinder {
   id: string;
   name: string;
   notes?: string;
+}
+
+interface BeanBag {
+  id: string;
+  name: string;
+  bagSize: number; // grams
+  remaining: number; // grams
 }
 
 // Ensure data directory and file exist
@@ -80,7 +90,7 @@ app.post('/api/brews', (req: Request, res: Response) => {
     ensureDataFile(DATA_FILE);
     const data = fs.readFileSync(DATA_FILE, 'utf-8');
     const brews: Brew[] = JSON.parse(data);
-    
+
     // Validate rating
     const rating = req.body.rating || 0;
     if (typeof rating !== 'number' && typeof rating !== 'string') {
@@ -97,6 +107,12 @@ app.post('/api/brews', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid grindSize: must be a number between 0 and 5000' });
     }
 
+    // Validate beansUsed if provided
+    const beansUsed = req.body.beansUsed !== undefined ? parseFloat(req.body.beansUsed) : undefined;
+    if (beansUsed !== undefined && (isNaN(beansUsed) || beansUsed < 0)) {
+      return res.status(400).json({ error: 'Invalid beansUsed value' });
+    }
+
     const newBrew: Brew = {
       id: Date.now().toString(),
       timestamp: new Date().toISOString(),
@@ -107,13 +123,31 @@ app.post('/api/brews', (req: Request, res: Response) => {
       masl: req.body.masl,
       grinder: req.body.grinder,
       grindSize: grindSize,
+      beanBagId: req.body.beanBagId || undefined,
+      beansUsed: beansUsed,
       recipe: req.body.recipe,
       notes: req.body.notes
     };
-    
+
     brews.push(newBrew);
     fs.writeFileSync(DATA_FILE, JSON.stringify(brews, null, 2));
-    
+
+    // If bean bag id provided and beansUsed is a number, decrement inventory
+    try {
+      if (newBrew.beanBagId && newBrew.beansUsed !== undefined && !isNaN(newBrew.beansUsed)) {
+        ensureDataFile(BEANS_FILE);
+        const bdata = fs.readFileSync(BEANS_FILE, 'utf-8');
+        const beans: BeanBag[] = JSON.parse(bdata);
+        const idx = beans.findIndex(b => b.id === newBrew.beanBagId);
+        if (idx !== -1) {
+          beans[idx].remaining = Math.max(0, (beans[idx].remaining || beans[idx].bagSize) - newBrew.beansUsed);
+          fs.writeFileSync(BEANS_FILE, JSON.stringify(beans, null, 2));
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to update bean inventory after brew save', err);
+    }
+
     res.status(201).json(newBrew);
   } catch (error) {
     res.status(500).json({ error: 'Failed to save brew' });
@@ -158,6 +192,88 @@ app.get('/api/grinders', (req: Request, res: Response) => {
     res.json(grinders);
   } catch (error) {
     res.status(500).json({ error: 'Failed to read grinders' });
+  }
+});
+
+// Beans endpoints
+app.get('/api/beans', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(BEANS_FILE);
+    const data = fs.readFileSync(BEANS_FILE, 'utf-8');
+    const beans: BeanBag[] = JSON.parse(data);
+    res.json(beans);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to read beans' });
+  }
+});
+
+app.post('/api/beans', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(BEANS_FILE);
+    const data = fs.readFileSync(BEANS_FILE, 'utf-8');
+    const beans: BeanBag[] = JSON.parse(data);
+    const bagSize = req.body.bagSize !== undefined ? parseFloat(req.body.bagSize) : 0;
+    if (!req.body.name || typeof req.body.name !== 'string') {
+      return res.status(400).json({ error: 'Invalid bean name' });
+    }
+    if (isNaN(bagSize) || bagSize <= 0) {
+      return res.status(400).json({ error: 'Invalid bagSize (must be number > 0)' });
+    }
+    const newBean: BeanBag = {
+      id: Date.now().toString(),
+      name: req.body.name,
+      bagSize: bagSize,
+      remaining: bagSize
+    };
+    beans.push(newBean);
+    fs.writeFileSync(BEANS_FILE, JSON.stringify(beans, null, 2));
+    res.status(201).json(newBean);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save bean bag' });
+  }
+});
+
+app.put('/api/beans/:id', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(BEANS_FILE);
+    const data = fs.readFileSync(BEANS_FILE, 'utf-8');
+    const beans: BeanBag[] = JSON.parse(data);
+    const { id } = req.params;
+    const { name, bagSize, remaining } = req.body;
+    const idx = beans.findIndex(b => b.id === id);
+    if (idx === -1) return res.status(404).json({error: 'Bean bag not found'});
+    if (name && typeof name === 'string') beans[idx].name = name;
+    if (bagSize !== undefined) {
+      const bs = parseFloat(bagSize);
+      if (isNaN(bs) || bs <= 0) return res.status(400).json({error: 'Invalid bagSize'});
+      beans[idx].bagSize = bs;
+      if (beans[idx].remaining > bs) beans[idx].remaining = bs;
+    }
+    if (remaining !== undefined) {
+      const rem = parseFloat(remaining);
+      if (isNaN(rem) || rem < 0) return res.status(400).json({error: 'Invalid remaining value'});
+      beans[idx].remaining = rem;
+    }
+    fs.writeFileSync(BEANS_FILE, JSON.stringify(beans, null, 2));
+    res.json(beans[idx]);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update bean bag' });
+  }
+});
+
+app.delete('/api/beans/:id', (req: Request, res: Response) => {
+  try {
+    ensureDataFile(BEANS_FILE);
+    const data = fs.readFileSync(BEANS_FILE, 'utf-8');
+    let beans: BeanBag[] = JSON.parse(data);
+    const id = req.params.id;
+    const origLen = beans.length;
+    beans = beans.filter(b => b.id !== id);
+    if (beans.length === origLen) return res.status(404).json({ error: 'Bean bag not found' });
+    fs.writeFileSync(BEANS_FILE, JSON.stringify(beans, null, 2));
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete bean bag' });
   }
 });
 
