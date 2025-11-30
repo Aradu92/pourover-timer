@@ -46,6 +46,7 @@ interface Recipe {
     duration: number;
     waterAmount: number;
   }[];
+  baseBeans?: number;
 }
 
 interface Grinder {
@@ -351,6 +352,7 @@ app.put('/api/grinders/:id', (req: Request, res: Response) => {
 // Save a new recipe
 app.post('/api/recipes', (req: Request, res: Response) => {
   try {
+    console.log('POST /api/recipes payload:', JSON.stringify(req.body));
     ensureDataFile(RECIPES_FILE);
     const data = fs.readFileSync(RECIPES_FILE, 'utf-8');
     const recipes: Recipe[] = JSON.parse(data);
@@ -359,6 +361,7 @@ app.post('/api/recipes', (req: Request, res: Response) => {
       id: Date.now().toString(),
       name: req.body.name || 'Custom Recipe',
       stages: req.body.stages || []
+      , baseBeans: req.body.baseBeans !== undefined ? parseFloat(req.body.baseBeans) : undefined
     };
     
     recipes.push(newRecipe);
@@ -387,6 +390,7 @@ app.put('/api/recipes/:id', (req: Request, res: Response) => {
     }
     recipes[idx].name = name;
     recipes[idx].stages = stages || [];
+    if (req.body.baseBeans !== undefined) recipes[idx].baseBeans = parseFloat(req.body.baseBeans);
     fs.writeFileSync(RECIPES_FILE, JSON.stringify(recipes, null, 2));
     console.log(`Updated recipe id=${recipes[idx].id} name=${recipes[idx].name}`);
     res.json(recipes[idx]);

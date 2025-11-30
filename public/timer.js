@@ -8,6 +8,8 @@ let pourStages = [
     { name: 'Second Pour', duration: 45, waterAmount: 100, instruction: 'Pour 3: 100 grams' },
     { name: 'Final Pour', duration: 45, waterAmount: 100, instruction: 'Pour 4: 100 grams' }
 ];
+let appliedRecipeBaseBeans = null; // the baseBeans value from applied recipe
+let appliedRecipeBaseStages = null; // deep copy of the base stages for scaling
 
 let currentStageIndex = 0;
 let timeRemaining = pourStages[0].duration;
@@ -239,6 +241,19 @@ function startTimer() {
     isRunning = true;
     console.log('Timer started!');
     
+    // Before starting, if a recipe is applied with a baseBeans stored, scale pourStages according to planned beans
+    const plannedInput = document.getElementById('planned-beans-input');
+    if (plannedInput && appliedRecipeBaseBeans && appliedRecipeBaseStages) {
+        const planned = parseFloat(plannedInput.value);
+        if (!isNaN(planned) && planned > 0 && appliedRecipeBaseBeans > 0) {
+            const ratio = planned / appliedRecipeBaseBeans;
+            // scale pourStages from appliedRecipeBaseStages
+            pourStages = appliedRecipeBaseStages.map(s => ({ ...s, waterAmount: Math.round((s.waterAmount || 0) * ratio) }));
+            // auto-fill completion form beans-used
+            const beansUsedInput = document.getElementById('beans-used-input');
+            if (beansUsedInput) beansUsedInput.value = '' + Math.round(planned);
+        }
+    }
     // Calculate total duration
     totalDuration = pourStages.reduce((sum, stage) => sum + stage.duration, 0);
     console.log('Total duration:', totalDuration);
@@ -348,10 +363,18 @@ async function showCompletionForm() {
         setTimeout(() => playBeep(), 500);
         // refresh the saved beans select so we can auto-select a default
         try { await loadBeans(); } catch (err) { console.warn('loadBeans failed on modal show', err); }
-        // Pre-populate beans-used input based on current recipe when the form is shown
+        // Pre-populate beans-used input based on planned beans when the form is shown
         let beansUsedInput = document.getElementById('beans-used-input');
         if (beansUsedInput && (!beansUsedInput.value || beansUsedInput.value === '')) {
             beansUsedInput.value = '' + computeDefaultBeansUsed();
+        }
+        // If planned beans provided, use it to autofill beansUsedInput
+        const plannedInput = document.getElementById('planned-beans-input');
+        if (plannedInput && plannedInput.value) {
+            const planned = parseFloat(plannedInput.value);
+            if (!isNaN(planned) && planned > 0 && beansUsedInput) {
+                beansUsedInput.value = '' + Math.round(planned);
+            }
         }
         // If a saved bean is selected, populate bean name input
         const savedBeansSelect = document.getElementById('saved-beans');
@@ -679,7 +702,13 @@ async function loadRecipes() {
             recipes.forEach(recipe => {
                 const option = document.createElement('option');
                 option.value = recipe.id;
-                option.textContent = recipe.name;
+                let text = recipe.name;
+                if (recipe.baseBeans) {
+                    const totalWater = (recipe.stages || []).reduce((s, st) => s + (st.waterAmount || 0), 0);
+                    const ratio = recipe.baseBeans ? (totalWater / recipe.baseBeans) : 0;
+                    text = `${recipe.name} • ${recipe.baseBeans}g (${ratio ? `1:${Math.round(ratio)}` : '-'})`;
+                }
+                option.textContent = text;
                 option.dataset.recipe = JSON.stringify(recipe);
                 savedRecipes.appendChild(option);
             });
@@ -1030,6 +1059,8 @@ let editingRecipeId = null;
 async function saveRecipe() {
     console.log('Saving recipe...');
     const recipeName = document.getElementById('recipe-name').value || 'Custom Recipe';
+    const baseBeansVal = document.getElementById('recipe-base-beans')?.value;
+    const baseBeans = baseBeansVal ? parseFloat(baseBeansVal) : undefined;
     
     // build stages dynamically based on selected stage-count
     const stageCount = parseInt((document.getElementById('stage-count') && document.getElementById('stage-count').value) || '4');
@@ -1046,7 +1077,7 @@ async function saveRecipe() {
     }
     
     try {
-        // If editingRecipeId is set, update instead of creating a new one
+            // If editingRecipeId is set, update instead of creating a new one
         const existingId = document.getElementById('editing-recipe-id')?.value || editingRecipeId;
         if (existingId) {
                     // If no editing id is set, check if a recipe with the same name and stages exists
@@ -1077,7 +1108,7 @@ async function saveRecipe() {
             const response = await fetch(`http://localhost:3000/api/recipes/${existingId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: recipeName, stages })
+                body: JSON.stringify({ name: recipeName, stages, baseBeans })
             });
             if (response.ok) {
                 alert('Recipe updated successfully');
@@ -1094,7 +1125,7 @@ async function saveRecipe() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ name: recipeName, stages })
+            body: JSON.stringify({ name: recipeName, stages, baseBeans })
         });
         
         if (response.ok) {
@@ -1127,6 +1158,19 @@ function applyRecipe() {
         const instruction = `Pour ${i}: ${water} grams` + (i === 1 ? ' (Bloom)' : '');
         newStages.push({ name, duration: dur, waterAmount: water, instruction });
     }
+    // Store base recipe stages and base beans for later scaling at brew start
+    appliedRecipeBaseStages = newStages.map(s => ({ ...s }));
+    appliedRecipeBaseBeans = null;
+    const savedRecipes = document.getElementById('saved-recipes');
+    if (savedRecipes && savedRecipes.value) {
+        const opt = savedRecipes.options[savedRecipes.selectedIndex];
+        if (opt && opt.dataset.recipe) {
+            try {
+                const recipe = JSON.parse(opt.dataset.recipe);
+                if (recipe.baseBeans) appliedRecipeBaseBeans = recipe.baseBeans;
+            } catch (err) { console.warn('Could not parse recipe dataset', err); }
+        }
+    }
     pourStages = newStages;
     
     console.log('Recipe applied:', pourStages);
@@ -1144,6 +1188,9 @@ function applyRecipe() {
         resetTimer();
     }
     
+    // Update the planned beans input with base recipe default if available
+    const plannedInput = document.getElementById('planned-beans-input');
+    if (plannedInput && appliedRecipeBaseBeans) plannedInput.value = '' + appliedRecipeBaseBeans;
     alert('Recipe applied! Ready to start brewing.');
 }
 
@@ -1156,6 +1203,7 @@ function loadRecipeFromSelect() {
         console.log('Loading recipe:', recipe);
         
         document.getElementById('recipe-name').value = recipe.name;
+        document.getElementById('recipe-base-beans').value = recipe.baseBeans || '';
         document.getElementById('editing-recipe-id').value = recipe.id;
         editingRecipeId = recipe.id;
         // Adjust button to indicate editing
