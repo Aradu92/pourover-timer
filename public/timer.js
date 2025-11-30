@@ -594,7 +594,7 @@ async function loadRecipes() {
             // reset editing state to avoid accidental overwrites
             document.getElementById('editing-recipe-id').value = '';
             editingRecipeId = null;
-            const saveBtn = document.getElementById('save-recipe-btn');
+            // If user typed bean name and matches a saved bag, select it in the select box
             if (saveBtn) saveBtn.textContent = 'Save Recipe';
         }
     } catch (error) {
@@ -703,12 +703,19 @@ async function loadBeans() {
         const savedBeansGrid = document.getElementById('saved-beans-grid');
         if (savedBeansSelect) {
             savedBeansSelect.innerHTML = '<option value="">-- Select saved bag --</option>';
+            const datalist = document.getElementById('beans-datalist');
+            if (datalist) datalist.innerHTML = '';
             beans.forEach(b => {
                 const opt = document.createElement('option');
                 opt.value = b.id;
                 opt.textContent = `${b.name} (${(typeof b.remaining !== 'undefined' ? b.remaining : b.bagSize)}g left)`;
                 opt.dataset.bean = JSON.stringify(b);
                 savedBeansSelect.appendChild(opt);
+                if (datalist) {
+                    const dopt = document.createElement('option');
+                    dopt.value = b.name;
+                    datalist.appendChild(dopt);
+                }
             });
         }
         if (savedBeansGrid) {

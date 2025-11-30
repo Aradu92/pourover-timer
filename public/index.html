@@ -242,9 +242,10 @@
                 <div>
                     <label class="block text-gray-700 font-medium mb-2">Coffee Beans</label>
                     <div class="flex gap-2">
-                        <input id="beans-input" type="text" 
+                           <input id="beans-input" list="beans-datalist" type="text" 
                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
                                placeholder="e.g., Ethiopian Yirgacheffe">
+                           <datalist id="beans-datalist"></datalist>
                         <select id="saved-beans" class="px-3 py-2 border border-gray-300 rounded-lg">
                             <option value="">-- Select saved bag --</option>
                         </select>
