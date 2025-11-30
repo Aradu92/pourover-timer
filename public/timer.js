@@ -78,7 +78,14 @@ function updateDisplay() {
     // Update instruction text
     if (instruction) {
         if (isRunning && pourStages[currentStageIndex]) {
-            instruction.textContent = pourStages[currentStageIndex].instruction || pourStages[currentStageIndex].name;
+            const st = pourStages[currentStageIndex];
+            const display = `${st.name} — ${st.waterAmount || 0}g`;
+            instruction.textContent = st.instruction || display;
+        } else if (!isRunning && pourStages && pourStages.length > 0) {
+            // Show the upcoming pour instruction when not running
+            const next = pourStages[currentStageIndex] || pourStages[0];
+            const display = `${next.name} — ${next.waterAmount || 0}g`;
+            instruction.textContent = 'Next: ' + (next.instruction || display);
         } else if (!isRunning) {
             instruction.textContent = 'Press Start to Begin';
         }
@@ -173,6 +180,74 @@ function renderStageIndicators() {
     }
 }
 
+// Rebuild the recipe preview UI using the current `pourStages`
+function updateRecipePreview() {
+    const preview = document.getElementById('recipe-preview');
+    const nameEl = document.getElementById('preview-recipe-name');
+    const listEl = document.getElementById('preview-stage-list');
+    const totalEl = document.getElementById('preview-total-water');
+    if (!preview || !nameEl || !listEl || !totalEl) return;
+    // Determine recipe name from applied recipe selection if available
+    let recipeName = 'Custom';
+    const savedRecipesSel = document.getElementById('saved-recipes');
+    if (savedRecipesSel && savedRecipesSel.value) {
+        const opt = savedRecipesSel.options[savedRecipesSel.selectedIndex];
+        if (opt && opt.dataset.recipe) {
+            try { recipeName = JSON.parse(opt.dataset.recipe).name || recipeName; } catch (err) { }
+        }
+    }
+    nameEl.textContent = recipeName;
+    // Build list
+    listEl.innerHTML = '';
+    if (!Array.isArray(pourStages) || pourStages.length === 0) {
+        listEl.innerHTML = '<div class="text-xs text-gray-500">No recipe applied</div>';
+        totalEl.textContent = '0';
+        preview.classList.add('hidden');
+        return;
+    }
+    // Ensure we are showing preview
+    preview.classList.remove('hidden');
+    let total = 0;
+    pourStages.forEach((st, idx) => {
+        const li = document.createElement('div');
+        li.textContent = `${idx + 1}. ${st.name} — ${st.waterAmount || 0}g @ ${st.duration || 0}s`;
+        listEl.appendChild(li);
+        total += (st.waterAmount || 0);
+    });
+    totalEl.textContent = '' + total;
+}
+
+// Given appliedRecipeBaseStages and appliedRecipeBaseBeans, scale stages based on planned beans
+function scaleAndApplyStages() {
+    console.log('scaleAndApplyStages: applying scaling if recipe base present');
+    const plannedInput = document.getElementById('planned-beans-input');
+    if (plannedInput && !plannedInput.dataset.listenerAttached) {
+        plannedInput.addEventListener('input', () => {
+            // Recompute scaling when user changes planned beans
+            scaleAndApplyStages();
+        });
+        plannedInput.dataset.listenerAttached = 'true';
+    }
+    const planned = plannedInput ? parseFloat(plannedInput.value) : NaN;
+    if (!appliedRecipeBaseStages || appliedRecipeBaseStages.length === 0) {
+        // Nothing applied; keep current pourStages but still update preview
+        updateRecipePreview();
+        return;
+    }
+    if (!isNaN(planned) && planned > 0 && appliedRecipeBaseBeans && appliedRecipeBaseBeans > 0) {
+        const ratio = planned / appliedRecipeBaseBeans;
+        pourStages = appliedRecipeBaseStages.map(s => ({ ...s, waterAmount: Math.round((s.waterAmount || 0) * ratio), instruction: `Pour: ${Math.round((s.waterAmount || 0) * ratio)} grams` }));
+    } else {
+        // No planned value; just copy base stages
+        pourStages = appliedRecipeBaseStages.map(s => ({ ...s }));
+    }
+    // Update instructions and UI elements
+    pourStages.forEach((s, idx) => { s.instruction = `Pour ${idx + 1}: ${s.waterAmount} grams` });
+    updateRecipePreview();
+    renderStageIndicators();
+    updateDisplay();
+}
+
 // Manage recipe setup inputs (show/hide based on stage-count selection)
 function renderStageSetupInputs() {
     const stageCountSel = document.getElementById('stage-count');
@@ -241,18 +316,19 @@ function startTimer() {
     isRunning = true;
     console.log('Timer started!');
     
-    // Before starting, if a recipe is applied with a baseBeans stored, scale pourStages according to planned beans
-    const plannedInput = document.getElementById('planned-beans-input');
-    if (plannedInput && appliedRecipeBaseBeans && appliedRecipeBaseStages) {
-        const planned = parseFloat(plannedInput.value);
-        if (!isNaN(planned) && planned > 0 && appliedRecipeBaseBeans > 0) {
-            const ratio = planned / appliedRecipeBaseBeans;
-            // scale pourStages from appliedRecipeBaseStages
-            pourStages = appliedRecipeBaseStages.map(s => ({ ...s, waterAmount: Math.round((s.waterAmount || 0) * ratio) }));
-            // auto-fill completion form beans-used
-            const beansUsedInput = document.getElementById('beans-used-input');
-            if (beansUsedInput) beansUsedInput.value = '' + Math.round(planned);
+    // Before starting, ensure the stage scaling and instructions are applied
+    try {
+        const plannedInput = document.getElementById('planned-beans-input');
+        // call the shared scaler so instruction text is updated too
+        scaleAndApplyStages();
+        // auto-fill completion form beans-used if planned was provided
+        const beansUsedInput = document.getElementById('beans-used-input');
+        if (beansUsedInput && plannedInput) {
+            const planned = parseFloat(plannedInput.value);
+            if (!isNaN(planned) && planned > 0) beansUsedInput.value = '' + Math.round(planned);
         }
+    } catch (err) {
+        console.warn('Error scaling stages at start', err);
     }
     // Calculate total duration
     totalDuration = pourStages.reduce((sum, stage) => sum + stage.duration, 0);
@@ -1191,6 +1267,8 @@ function applyRecipe() {
     // Update the planned beans input with base recipe default if available
     const plannedInput = document.getElementById('planned-beans-input');
     if (plannedInput && appliedRecipeBaseBeans) plannedInput.value = '' + appliedRecipeBaseBeans;
+    // Immediately scale and update preview based on planned beans (so UI reflects scaled amounts)
+    scaleAndApplyStages();
     alert('Recipe applied! Ready to start brewing.');
 }
 

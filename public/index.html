@@ -141,6 +141,17 @@
                     ⚙️ Customize Recipe
                 </button>
             </div>
+
+            <!-- Recipe Preview -->
+            <div id="recipe-preview" class="mt-4 bg-gray-50 rounded-lg p-4 text-sm text-gray-700 hidden">
+                <div class="flex justify-between items-center mb-2">
+                    <div class="font-medium">Recipe Preview: <span id="preview-recipe-name">Default</span></div>
+                    <div>Total water: <span id="preview-total-water">0</span> g</div>
+                </div>
+                <div id="preview-stage-list" class="space-y-1 text-xs text-gray-600">
+                    <!-- Stage items inserted here by JS -->
+                </div>
+            </div>
         </div>
         
         <!-- Recipe Customization Modal (Hidden initially) -->
