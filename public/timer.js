@@ -199,7 +199,8 @@ function renderStageSetupInputs() {
 
 function nextStage() {
     console.log('Moving to next stage from:', currentStageIndex);
-    currentStageIndex++;
+        timerInterval = window.setInterval(tick, 1000);
+        console.log('Interval started:', timerInterval);
     console.log('New stage index:', currentStageIndex);
     
     if (currentStageIndex < pourStages.length) {
@@ -344,6 +345,32 @@ function showCompletionForm() {
         form.classList.remove('hidden');
         playBeep();
         setTimeout(() => playBeep(), 500);
+        // Pre-populate beans-used input based on current recipe when the form is shown
+        const beansUsedInput = document.getElementById('beans-used-input');
+        if (beansUsedInput && (!beansUsedInput.value || beansUsedInput.value === '')) {
+            beansUsedInput.value = '' + computeDefaultBeansUsed();
+        }
+        // If a saved bean is selected, populate bean name input
+        const savedBeansSelect = document.getElementById('saved-beans');
+        const beansInput = document.getElementById('beans-input');
+        if (savedBeansSelect && savedBeansSelect.value && beansInput) {
+            const opt = savedBeansSelect.options[savedBeansSelect.selectedIndex];
+            if (opt && opt.dataset.bean) {
+                const bean = JSON.parse(opt.dataset.bean);
+                beansInput.value = bean.name || beansInput.value;
+            }
+        }
+        // If user typed bean name and matches a saved bag, select it in the select box
+        if (beansInput && savedBeansSelect && beansInput.value) {
+            const typed = beansInput.value.trim().toLowerCase();
+            const selOpt = Array.from(savedBeansSelect.options).find(o => (o.textContent || '').toLowerCase().includes(typed));
+            if (selOpt) {
+                savedBeansSelect.value = selOpt.value;
+                // trigger change behavior to set beansUsed input if needed
+                const evt = new Event('change');
+                savedBeansSelect.dispatchEvent(evt);
+            }
+        }
     }
 }
 
@@ -372,8 +399,22 @@ function hideCompletionForm() {
     });
 }
 
+// Compute a default beans used value based on total water in the current recipe.
+// Default rule: total water grams divided by 16 (coffee:water ratio), rounded.
+function computeDefaultBeansUsed() {
+    try {
+        if (!Array.isArray(pourStages) || pourStages.length === 0) return 10;
+        const totalWater = pourStages.reduce((sum, st) => sum + (st.waterAmount || 0), 0);
+        const beansUsed = Math.round(totalWater / 16);
+        return Math.max(1, beansUsed);
+    } catch (err) {
+        console.warn('computeDefaultBeansUsed error', err);
+        return 10;
+    }
+}
+
 async function saveBrew(beans, rating, origin, roast, masl, notes, grinder, grindSize, beanBagId, beansUsed) {
-    console.log('Saving brew:', { beans, rating, origin, roast, masl });
+    console.log('saveBrew invoked: payload summary', { beans, rating, origin, roast, masl, grinder, grindSize, beanBagId, beansUsed });
     
     // Capture current recipe
     const recipeData = {
@@ -457,7 +498,8 @@ async function loadBrews() {
                         const stars = '⭐'.repeat(brew.rating);
                         let beanLabel = brew.beans || '';
                         if (brew.beanBagId && beanMap[brew.beanBagId]) {
-                            beanLabel = `${beanMap[brew.beanBagId].name} • ${brew.beansUsed ? brew.beansUsed + 'g' : ''}`;
+                            const used = (brew.beansUsed !== undefined && brew.beansUsed !== null) ? `${brew.beansUsed}g` : '';
+                            beanLabel = `${beanMap[brew.beanBagId].name}${used ? ' • ' + used : ''}`;
                         }
                         return `
                             <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg group">
@@ -640,7 +682,7 @@ async function loadBeans() {
             beans.forEach(b => {
                 const opt = document.createElement('option');
                 opt.value = b.id;
-                opt.textContent = `${b.name} (${b.remaining || b.bagSize}g left)`;
+                opt.textContent = `${b.name} (${(typeof b.remaining !== 'undefined' ? b.remaining : b.bagSize)}g left)`;
                 opt.dataset.bean = JSON.stringify(b);
                 savedBeansSelect.appendChild(opt);
             });
@@ -675,7 +717,7 @@ async function loadBeans() {
                 row.innerHTML = `
                     <div class="flex-1">
                         <div class="font-bold">${b.name}</div>
-                        <div class="text-sm text-gray-600">${b.remaining || b.bagSize}g / ${b.bagSize}g</div>
+                        <div class="text-sm text-gray-600">${(typeof b.remaining !== 'undefined' ? b.remaining : b.bagSize)}g / ${b.bagSize}g</div>
                         <div class="w-full bg-gray-200 rounded h-2 mt-2">
                             <div class="bg-amber-600 h-2 rounded" style="width:${pct}%"></div>
                         </div>
@@ -1055,6 +1097,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (saveBrewBtn) {
         saveBrewBtn.addEventListener('click', () => {
+            console.log('Save Brew button clicked');
             const beansInput = document.getElementById('beans-input');
             const ratingValue = document.getElementById('rating-value');
             
@@ -1075,22 +1118,37 @@ document.addEventListener('DOMContentLoaded', () => {
             const grinder = grinderInput?.value || '';
             const grindSize = parseFloat(grindSizeInput?.value) || null;
             const savedBeansSelect = document.getElementById('saved-beans');
-            const beanBagId = savedBeansSelect?.value || '';
+            let beanBagId = savedBeansSelect?.value || '';
             const beansUsedInput = document.getElementById('beans-used-input');
             let beansUsed = beansUsedInput?.value ? parseFloat(beansUsedInput.value) : null;
-            if (!beansUsed) {
+            if (beansUsed === null || isNaN(beansUsed)) {
                 // compute default beans used: total water / 16 ratio
                 beansUsed = computeDefaultBeansUsed();
             }
 
-            if (rating > 0) {
+            try {
+                console.log('Saving brew payload (pre):', { beans, rating, origin, roast, masl, grinder, grindSize, beanBagId, beansUsed });
+                if (rating > 0) {
                 // client-side validation for grindSize range
                 if (grindSize !== null && (isNaN(grindSize) || grindSize < 0 || grindSize > 5000)) {
                     return alert('Please enter a valid grind size between 0 and 5000.');
                 }
-                saveBrew(beans, rating, origin, roast, masl, notes, grinder, grindSize, beanBagId, beansUsed);
-            } else {
+                    // If no beanBagId provided but beans matches a saved bag name, map to the bag id
+                    if (!beanBagId && beans && window._beanMap) {
+                        const nameToMatch = beans.trim().toLowerCase();
+                        const found = Object.values(window._beanMap).find(b => (b.name || '').trim().toLowerCase() === nameToMatch);
+                        if (found) {
+                            beanBagId = found.id;
+                            console.log('Mapped typed bean name to saved beanBagId:', beanBagId);
+                        }
+                    }
+                    saveBrew(beans, rating, origin, roast, masl, notes, grinder, grindSize, beanBagId, beansUsed);
+                } else {
                 alert('Please select a rating');
+                }
+            } catch (err) {
+                console.error('Error handling Save Brew click', err);
+                alert('Error saving brew (see console)');
             }
         });
     }
@@ -1466,6 +1524,7 @@ function populateAnalyticsFilters(brews) {
                 const beansUsedInput = document.getElementById('beans-used-input');
                 if (beansUsedInput) beansUsedInput.value = '' + computeDefaultBeansUsed();
             }
+            console.log('savedBeans select changed ->', savedBeansSelect.value, (savedBeansSelect.options[savedBeansSelect.selectedIndex] && savedBeansSelect.options[savedBeansSelect.selectedIndex].dataset.bean));
         });
     }
 }
