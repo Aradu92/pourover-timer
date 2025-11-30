@@ -500,12 +500,27 @@
             <!-- Chart Section -->
             <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
                 <h2 class="text-xl font-bold text-amber-900 mb-4">Brew Analytics</h2>
-                <div class="w-full grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                    <div class="w-full flex justify-center">
-                        <canvas id="analytics-chart" class="w-full max-w-xl h-64"></canvas>
+                <div class="w-full grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                    <!-- Left column: Origin chart (analytics) + Grinder chart with stats -->
+                    <div class="w-full flex flex-col gap-4">
+                        <div class="w-full flex justify-center">
+                            <canvas id="analytics-chart" class="w-full max-w-2xl h-64"></canvas>
+                        </div>
+                        <div class="w-full flex flex-col gap-2">
+                            <div class="w-full flex justify-center">
+                                <canvas id="grinder-chart" class="w-full max-w-2xl h-64"></canvas>
+                            </div>
+                            <div id="grinder-stats" class="w-full text-sm text-gray-700 mt-2"></div>
+                        </div>
                     </div>
-                    <div class="w-full flex justify-center">
-                        <canvas id="rating-chart" class="w-full max-w-xs h-64"></canvas>
+                    <!-- Right column: Rating distribution + Grind size histogram -->
+                    <div class="w-full flex flex-col gap-4">
+                        <div class="w-full flex justify-center">
+                            <canvas id="rating-chart" class="w-full max-w-2xl h-64"></canvas>
+                        </div>
+                        <div class="w-full flex justify-center">
+                            <canvas id="grindsize-chart" class="w-full max-w-2xl h-64"></canvas>
+                        </div>
                     </div>
                 </div>
                 <div class="w-full mt-4">

@@ -1531,6 +1531,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Analytics functions
 let analyticsChart = null;
+let grinderChart = null;
 async function refreshAnalytics() {
     console.log('refreshAnalytics: starting');
     try {
@@ -1669,6 +1670,27 @@ function renderAnalyticsChart(brews) {
             }
         ]
     };
+    // Grinder chart: counts & avg rating per grinder
+    const grinderCounts = {};
+    const grinderRatings = {};
+    const grinderGrindSize = {};
+    brews.forEach(brew => {
+        const g = brew.grinder || 'Unknown';
+        grinderCounts[g] = (grinderCounts[g] || 0) + 1;
+        if (brew.rating !== undefined && brew.rating !== null) {
+            if (!grinderRatings[g]) grinderRatings[g] = { total: 0, count: 0 };
+            grinderRatings[g].total += brew.rating; grinderRatings[g].count++;
+        }
+        if (brew.grindSize !== undefined && brew.grindSize !== null) {
+            if (!grinderGrindSize[g]) grinderGrindSize[g] = { total: 0, count: 0 };
+            grinderGrindSize[g].total += parseFloat(brew.grindSize);
+            grinderGrindSize[g].count++;
+        }
+    });
+    const grinderLabels = Object.keys(grinderCounts);
+    const grinderCountValues = grinderLabels.map(l => grinderCounts[l]);
+    const grinderAvgRatingValues = grinderLabels.map(l => grinderRatings[l] ? Number((grinderRatings[l].total / grinderRatings[l].count).toFixed(2)) : 0);
+    const grinderAvgGrindValues = grinderLabels.map(l => grinderGrindSize[l] ? Number((grinderGrindSize[l].total / grinderGrindSize[l].count).toFixed(1)) : 0);
     // If canvas width is zero (e.g., hidden tab), wait and retry
     if (ctx.canvas.offsetWidth === 0) {
         setTimeout(() => renderAnalyticsChart(brews), 200);
@@ -1723,6 +1745,106 @@ function renderAnalyticsChart(brews) {
                     title: { display: true, text: 'Rating Distribution' }
                 }
             }
+            });
+        }
+    }
+    // Render grinder chart
+    const grinderCtxEl = document.getElementById('grinder-chart');
+    if (grinderCtxEl) {
+        const gCtx = grinderCtxEl.getContext('2d');
+        if (grinderChart) grinderChart.destroy();
+        if (grinderLabels.length === 0) {
+            gCtx.clearRect(0, 0, gCtx.canvas.width, gCtx.canvas.height);
+            gCtx.font = '14px sans-serif'; gCtx.fillStyle = '#6b7280'; gCtx.textAlign = 'center';
+            gCtx.fillText('No grinder data available', gCtx.canvas.width / 2, gCtx.canvas.height / 2);
+        } else {
+            grinderChart = new Chart(gCtx, {
+                type: 'bar',
+                data: {
+                    labels: grinderLabels,
+                    datasets: [
+                        {
+                            type: 'bar',
+                            label: 'Brew Count',
+                            data: grinderCountValues,
+                            backgroundColor: 'rgba(59, 130, 246, 0.7)'
+                        },
+                        {
+                            type: 'line',
+                            label: 'Avg Rating',
+                            yAxisID: 'ratingAxis',
+                            data: grinderAvgRatingValues,
+                            borderColor: 'rgba(245, 158, 11, 1)',
+                            backgroundColor: 'rgba(245, 158, 11, 0.2)'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: 'Brew Count' } },
+                        ratingAxis: { type: 'linear', position: 'right', beginAtZero: true, max: 5, title: { display: true, text: 'Avg Rating' } }
+                    },
+                    plugins: {
+                        title: { display: true, text: 'Grinder Usage & Avg Rating' },
+                        legend: { position: 'bottom' }
+                    }
+                    ,
+                    onClick: function(evt, elements) {
+                        if (elements && elements.length > 0) {
+                            const idx = elements[0].index;
+                            const grinderName = grinderLabels[idx];
+                            const gf = document.getElementById('filter-grinder');
+                            if (gf) {
+                                gf.value = grinderName;
+                                refreshAnalytics();
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        // Also render grinder stats table summary
+        const grinderStatsDiv = document.getElementById('grinder-stats');
+        if (grinderStatsDiv) {
+            if (grinderLabels.length === 0) {
+                grinderStatsDiv.innerHTML = '<p class="text-gray-500">No grinder data available</p>';
+            } else {
+                grinderStatsDiv.innerHTML = '<table class="w-full text-sm text-left"><thead class="text-xs text-gray-500"><tr><th>Grinder</th><th>Brews</th><th>Avg Rating</th><th>Avg Grind</th></tr></thead><tbody>' +
+                    grinderLabels.map((g, idx) => `<tr><td>${g}</td><td>${grinderCountValues[idx]}</td><td>${grinderAvgRatingValues[idx] ? grinderAvgRatingValues[idx].toFixed(2) : '-'}</td><td>${grinderAvgGrindValues[idx] ? grinderAvgGrindValues[idx].toFixed(1) : '-'}</td></tr>`).join('') +
+                    '</tbody></table>';
+            }
+        }
+    }
+    // Grind size histogram
+    const grindSizeCtxEl = document.getElementById('grindsize-chart');
+    if (grindSizeCtxEl) {
+        const gstCtx = grindSizeCtxEl.getContext('2d');
+        // Buckets: 0-2,2-4,4-6,6-8,8-10,10+
+        const buckets = [0,2,4,6,8,10];
+        const bucketLabels = ['0-2','2-4','4-6','6-8','8-10','10+'];
+        const bucketCounts = [0,0,0,0,0,0];
+        brews.forEach(b => {
+            if (b.grindSize !== undefined && b.grindSize !== null && !isNaN(b.grindSize)) {
+                const v = parseFloat(b.grindSize);
+                let placed = false;
+                for (let i = 0; i < buckets.length; i++) {
+                    if (v < buckets[i]) { bucketCounts[i]++; placed = true; break; }
+                }
+                if (!placed) bucketCounts[bucketCounts.length - 1]++;
+            }
+        });
+        if (window.grindSizeChart) window.grindSizeChart.destroy();
+        const totalGrinds = bucketCounts.reduce((a,b) => a + b, 0);
+        if (totalGrinds === 0) {
+            gstCtx.clearRect(0,0,gstCtx.canvas.width,gstCtx.canvas.height);
+            gstCtx.font = '14px sans-serif'; gstCtx.fillStyle = '#6b7280'; gstCtx.textAlign = 'center';
+            gstCtx.fillText('No grind size data available', gstCtx.canvas.width / 2, gstCtx.canvas.height / 2);
+        } else {
+            window.grindSizeChart = new Chart(gstCtx, {
+                type: 'bar',
+                data: { labels: bucketLabels, datasets: [{ label: 'Brew Count', data: bucketCounts, backgroundColor: 'rgba(168, 85, 247, 0.7)' }] },
+                options: { responsive: true, plugins: { title: { display: true, text: 'Grind Size Distribution (g)' } }, scales: { y: { beginAtZero: true } } }
             });
         }
     }
@@ -1857,7 +1979,17 @@ function calculateStats(brews) {
         const topGr = Object.entries(grinderRatings)
             .map(([name, data]) => ({ name, avg: data.total / data.count }))
             .sort((a, b) => b.avg - a.avg)[0];
-        topGrinderEl.textContent = topGr ? `${topGr.name} (${topGr.avg.toFixed(1)}★)` : '-';
+        // Also compute counts and average grind size to show alongside
+        if (topGr) {
+            const count = grinderRatings[topGr.name] ? grinderRatings[topGr.name].count : 0;
+            // average grind size for this grinder
+            let totalGrind = 0, grindCount = 0;
+            brews.forEach(brew => { if (brew.grinder === topGr.name && brew.grindSize !== undefined && brew.grindSize !== null) { totalGrind += parseFloat(brew.grindSize); grindCount++; } });
+            const avgGrind = grindCount > 0 ? (totalGrind / grindCount).toFixed(1) : '-';
+            topGrinderEl.textContent = `${topGr.name} (${topGr.avg.toFixed(1)}★ • ${count} brews • ${avgGrind} avg grind)`;
+        } else {
+            topGrinderEl.textContent = '-';
+        }
     }
     // Average grind size
     if (avgGrindEl) {
@@ -2107,6 +2239,28 @@ function generateInsights(brews) {
     
     if (topRecipe) {
         insights.push(`Your best performing recipe is <strong>${topRecipe.name}</strong> with an average rating of ${topRecipe.avg.toFixed(1)} stars.`);
+    }
+    // Grinder insights: most used grinder and best grinder by average rating
+    const grinderCounts = {};
+    const grinderRatings = {};
+    brews.forEach(brew => {
+        if (brew.grinder) {
+            grinderCounts[brew.grinder] = (grinderCounts[brew.grinder] || 0) + 1;
+            if (brew.rating !== undefined && brew.rating !== null) {
+                if (!grinderRatings[brew.grinder]) grinderRatings[brew.grinder] = { total: 0, count: 0 };
+                grinderRatings[brew.grinder].total += brew.rating;
+                grinderRatings[brew.grinder].count++;
+            }
+        }
+    });
+    const topUsedGrinder = Object.entries(grinderCounts).sort((a, b) => b[1] - a[1])[0];
+    if (topUsedGrinder) {
+        const name = topUsedGrinder[0]; const count = topUsedGrinder[1];
+        insights.push(`Most used grinder: <strong>${name}</strong> — ${count} brew${count > 1 ? 's' : ''}.`);
+    }
+    const topRatedGrinder = Object.entries(grinderRatings).map(([name, data]) => ({ name, avg: data.total / data.count })).sort((a,b) => b.avg - a.avg)[0];
+    if (topRatedGrinder) {
+        insights.push(`Highest-rated grinder: <strong>${topRatedGrinder.name}</strong> with an average rating of ${topRatedGrinder.avg.toFixed(1)} stars.`);
     }
     
     container.innerHTML = insights.map(insight => `
