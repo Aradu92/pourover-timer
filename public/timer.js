@@ -507,35 +507,7 @@ async function loadGrinders() {
         // Populate grinders-list for easy management
         const grindersList = document.getElementById('grinders-list');
         if (grindersList) {
-            const beansTab = document.getElementById('beans-tab');
-            const beansContent = document.getElementById('beans-content');
-            if (beansTab) {
-                beansTab.addEventListener('click', () => {
-                    beansTab.classList.add('bg-amber-600', 'text-white');
-                    beansTab.classList.remove('text-gray-700', 'hover:bg-gray-100');
-
-                    if (analyticsTab) {
-                        analyticsTab.classList.remove('bg-amber-600', 'text-white');
-                        analyticsTab.classList.add('text-gray-700', 'hover:bg-gray-100');
-                    }
-                    if (timerTab) {
-                        timerTab.classList.remove('bg-amber-600', 'text-white');
-                        timerTab.classList.add('text-gray-700', 'hover:bg-gray-100');
-                    }
-                    if (grindersTab) {
-                        grindersTab.classList.remove('bg-amber-600', 'text-white');
-                        grindersTab.classList.add('text-gray-700', 'hover:bg-gray-100');
-                    }
-
-                    // Toggle content
-                    if (beansContent) beansContent.classList.add('active');
-                    if (analyticsContent) analyticsContent.classList.remove('active');
-                    if (timerContent) timerContent.classList.remove('active');
-                    if (grindersContent) grindersContent.classList.remove('active');
-
-                    loadBeans();
-                });
-            }
+            // grinders list population proceeds here - no beans tab listener here
             grinders.forEach(g => {
                 const row = document.createElement('div');
                 row.className = 'flex justify-between items-center p-2 border rounded-md';
@@ -601,10 +573,24 @@ async function loadBeans() {
         const savedBeansSelect = document.getElementById('saved-beans');
         const savedBeansGrid = document.getElementById('saved-beans-grid');
         if (savedBeansSelect) {
-            savedBeansSelect.innerHTML = '<option value="">-- Select saved bag --</option>' + beans.map(b => `<option value="${b.id}" data-bean='${JSON.stringify(b)}'>${b.name} (${b.remaining || b.bagSize}g left)</option>`).join('');
+            savedBeansSelect.innerHTML = '<option value="">-- Select saved bag --</option>';
+            beans.forEach(b => {
+                const opt = document.createElement('option');
+                opt.value = b.id;
+                opt.textContent = `${b.name} (${b.remaining || b.bagSize}g left)`;
+                opt.dataset.bean = JSON.stringify(b);
+                savedBeansSelect.appendChild(opt);
+            });
         }
         if (savedBeansGrid) {
-            savedBeansGrid.innerHTML = '<option value="">-- Select a bean bag --</option>' + beans.map(b => `<option value="${b.id}" data-bean='${JSON.stringify(b)}'>${b.name} (${Math.round((b.remaining/b.bagSize)*100)}%)</option>`).join('');
+            savedBeansGrid.innerHTML = '<option value="">-- Select a bean bag --</option>';
+            beans.forEach(b => {
+                const opt = document.createElement('option');
+                opt.value = b.id;
+                opt.textContent = `${b.name} (${Math.round((b.remaining / b.bagSize) * 100)}%)`;
+                opt.dataset.bean = JSON.stringify(b);
+                savedBeansGrid.appendChild(opt);
+            });
         }
         // update a global bean map for CSV/export lookups and general use
         window._beanMap = {};
@@ -1171,9 +1157,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const timerTab = document.getElementById('timer-tab');
     const analyticsTab = document.getElementById('analytics-tab');
     const grindersTab = document.getElementById('grinders-tab');
+    const beansTab = document.getElementById('beans-tab');
     const timerContent = document.getElementById('timer-content');
     const analyticsContent = document.getElementById('analytics-content');
     const grindersContent = document.getElementById('grinders-content');
+    const beansContent = document.getElementById('beans-content');
     
     if (timerTab) {
         timerTab.addEventListener('click', () => {
@@ -1250,6 +1238,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Load grinders
             loadGrinders();
+        });
+    }
+    if (beansTab) {
+        beansTab.addEventListener('click', () => {
+            console.log('Beans tab clicked');
+            beansTab.classList.add('bg-amber-600', 'text-white');
+            beansTab.classList.remove('text-gray-700', 'hover:bg-gray-100');
+
+            if (analyticsTab) {
+                analyticsTab.classList.remove('bg-amber-600', 'text-white');
+                analyticsTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+            }
+            if (timerTab) {
+                timerTab.classList.remove('bg-amber-600', 'text-white');
+                timerTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+            }
+            if (grindersTab) {
+                grindersTab.classList.remove('bg-amber-600', 'text-white');
+                grindersTab.classList.add('text-gray-700', 'hover:bg-gray-100');
+            }
+
+            // Toggle content visibility
+            if (beansContent) beansContent.classList.add('active');
+            if (analyticsContent) analyticsContent.classList.remove('active');
+            if (timerContent) timerContent.classList.remove('active');
+            if (grindersContent) grindersContent.classList.remove('active');
+
+            loadBeans();
         });
     }
     
