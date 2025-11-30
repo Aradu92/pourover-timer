@@ -1563,6 +1563,13 @@ function populateAnalyticsFilters(brews) {
                 // Set default beans used if possible
                 const beansUsedInput = document.getElementById('beans-used-input');
                 if (beansUsedInput) beansUsedInput.value = '' + computeDefaultBeansUsed();
+                // Populate completion form metadata if present
+                const originInput = document.getElementById('origin-input');
+                const roastInput = document.getElementById('roast-input');
+                const maslInput = document.getElementById('masl-input');
+                if (bean.origin && originInput) originInput.value = bean.origin;
+                if (bean.roast && roastInput) roastInput.value = bean.roast;
+                if (bean.masl && maslInput) maslInput.value = bean.masl;
             }
             console.log('savedBeans select changed ->', savedBeansSelect.value, (savedBeansSelect.options[savedBeansSelect.selectedIndex] && savedBeansSelect.options[savedBeansSelect.selectedIndex].dataset.bean));
         });
