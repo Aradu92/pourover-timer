@@ -67,8 +67,7 @@
             <button id="beans-tab" class="tab-btn flex-1 py-3 px-6 rounded-lg font-bold transition text-gray-700 hover:bg-gray-100">
                 🫘 Beans
             </button>
-        </div>
-
+                
         <div id="timer-content" class="tab-content active">
         <!-- Timer Display -->
         <div class="bg-white rounded-2xl shadow-2xl p-8 mb-6">

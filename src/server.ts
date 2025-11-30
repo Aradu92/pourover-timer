@@ -5,10 +5,11 @@ import * as path from 'path';
 
 const app = express();
 const PORT = 3000;
-const DATA_FILE = path.join(__dirname, '../data/brews.json');
-const RECIPES_FILE = path.join(__dirname, '../data/recipes.json');
-const GRINDERS_FILE = path.join(__dirname, '../data/grinders.json');
-const BEANS_FILE = path.join(__dirname, '../data/beans.json');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../data');
+const DATA_FILE = path.join(DATA_DIR, 'brews.json');
+const RECIPES_FILE = path.join(DATA_DIR, 'recipes.json');
+const GRINDERS_FILE = path.join(DATA_DIR, 'grinders.json');
+const BEANS_FILE = path.join(DATA_DIR, 'beans.json');
 
 app.use(cors());
 app.use(express.json());
@@ -419,6 +420,11 @@ app.delete('/api/recipes/:id', (req: Request, res: Response) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Pourover timer server running at http://localhost:${PORT}`);
-});
+// Only listen if this file is run directly, not when imported for tests
+if (require && require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Pourover timer server running at http://localhost:${PORT}`);
+  });
+}
+
+export default app;

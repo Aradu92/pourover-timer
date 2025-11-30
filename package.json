@@ -7,8 +7,13 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "tsc && node dist/server.js",
-    "watch": "tsc --watch"
+    "watch": "tsc --watch",
+    "test": "jest --passWithNoTests --runInBand",
+    "test:unit": "jest --passWithNoTests --runInBand",
+    "test:e2e": "playwright test",
+    "ci": "npm run test:unit && npm run test:e2e"
   },
+  "postinstall": "npx playwright install chromium || true",
   "keywords": ["coffee", "pourover", "timer"],
   "author": "",
   "license": "ISC",
@@ -20,6 +25,13 @@
     "@types/express": "^4.17.21",
     "@types/cors": "^2.8.17",
     "@types/node": "^20.10.0",
-    "typescript": "^5.3.2"
+    "typescript": "^5.3.2",
+    "jest": "^29.6.0",
+    "ts-jest": "^29.1.1",
+    "supertest": "^6.3.3",
+    "@types/jest": "^29.5.2",
+    "@types/supertest": "^2.0.12",
+    "@playwright/test": "^1.44.0",
+    "wait-on": "^7.0.1"
   }
 }
