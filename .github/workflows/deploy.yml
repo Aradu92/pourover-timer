@@ -1,13 +1,10 @@
-name: Build and Deploy to Kubernetes
+name: Build and Deploy to Kubernetes (manual)
 
+# NOTE: This workflow is disabled from running automatically on push/PR to avoid
+# unintended Docker builds and deployments. Use manual dispatch to run it when
+# needed (e.g., for a release).
 on:
-  push:
-    branches:
-      - main
-      - develop
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
