@@ -2,9 +2,17 @@ import { test, expect } from '@playwright/test';
 
 test('apply recipe and scale pours using planned beans', async ({ page }) => {
   let recipeId = '';
+  let token = '';
   try {
-    // Open the app
     await page.goto('/');
+    // Register via UI
+    await page.click('text=Login / Register');
+    await page.fill('#auth-username', 'e2e-recipe-user-' + Date.now());
+    await page.fill('#auth-password', 'password123');
+    await page.click('#auth-register-btn');
+    await page.waitForSelector('#login-modal', { state: 'hidden' });
+    await page.waitForSelector("text=Hello,", { state: 'visible' });
+    token = await page.evaluate(() => localStorage.getItem('AUTH_TOKEN'));
 
   // Open the Customize modal
   await page.click('#customize-btn');
@@ -49,7 +57,7 @@ test('apply recipe and scale pours using planned beans', async ({ page }) => {
   } finally {
     // Cleanup: delete created recipe
     try {
-      if (recipeId) await page.request.delete(`/api/recipes/${recipeId}`);
+      if (recipeId) await page.request.delete(`/api/recipes/${recipeId}`, { headers: { Authorization: `Bearer ${token}` } });
     } catch (err) { console.warn('Cleanup recipe-scaling test failed', err); }
   }
 });

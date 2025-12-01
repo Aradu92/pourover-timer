@@ -3,9 +3,20 @@ import { test, expect } from '@playwright/test';
 test('quick log saves a brew and decrements bean remaining', async ({ page }) => {
   let beanId = '';
   let createdBrewIds: string[] = [];
+  let token = '';
   try {
-    await page.goto('/');
+     await page.goto('/');
   // Create bean via Beans tab
+       // Register via UI
+       await page.click('text=Login / Register');
+       const username = 'quicklog-user-' + Date.now();
+       await page.fill('#auth-username', username);
+       await page.fill('#auth-password', 'password123');
+      await page.click('#auth-register-btn');
+      // capture token from localStorage for direct API cleanup
+      token = await page.evaluate(() => localStorage.getItem('AUTH_TOKEN'));
+       await page.waitForSelector('#login-modal', { state: 'hidden' });
+       await page.waitForSelector("text=Hello,", { state: 'visible' });
   const beanName = 'QuickLogBean ' + Date.now();
   await page.click('#beans-tab');
   await expect(page.locator('#beans-list')).toBeVisible();
@@ -43,7 +54,7 @@ test('quick log saves a brew and decrements bean remaining', async ({ page }) =>
   expect(remText).toContain('275');
 
   // capture created brews for cleanup
-  const brewsResp = await page.request.get('/api/brews');
+  const brewsResp = await page.request.get('/api/brews', { headers: { Authorization: `Bearer ${token}` } });
   const brews = await brewsResp.json();
   const createdBrews = brews.filter((b: any) => b.beanBagId === beanId);
   createdBrewIds = createdBrews.map((b: any) => b.id);
@@ -52,10 +63,10 @@ test('quick log saves a brew and decrements bean remaining', async ({ page }) =>
   } finally {
     // Cleanup: delete created brew(s) and bean
     try {
-      for (const id of createdBrewIds) {
-        await page.request.delete(`/api/brews/${id}`);
+        for (const id of createdBrewIds) {
+          await page.request.delete(`/api/brews/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       }
-      if (beanId) await page.request.delete(`/api/beans/${beanId}`);
+        if (beanId) await page.request.delete(`/api/beans/${beanId}`, { headers: { Authorization: `Bearer ${token}` } });
     } catch (err) { console.warn('Cleanup quick-log test failed', err); }
   }
 });

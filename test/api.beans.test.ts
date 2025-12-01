@@ -12,33 +12,44 @@ describe('API Beans CRUD', () => {
     fs.writeFileSync(beansFile, '[]');
   });
 
+  async function createTestUser() {
+    const username = 'beanuser-' + Date.now();
+    const password = 'password123';
+    const create = await request(app).post('/api/users/register').send({ username, password }).expect(201);
+    return { username, password, token: create.body.token, id: create.body.id };
+  }
+
   it('should create, get, update, and delete a bean bag', async () => {
     // Create
+    const u = await createTestUser();
+    const auth = `Bearer ${u.token}`;
     let res = await request(app)
       .post('/api/beans')
+      .set('Authorization', auth)
       .send({ name: 'Test Beans', bagSize: 300 });
     expect(res.status).toBe(201);
     expect(res.body.id).toBeTruthy();
     const id = res.body.id;
 
     // Get list
-    res = await request(app).get('/api/beans');
+    res = await request(app).get('/api/beans').set('Authorization', auth);
     expect(res.status).toBe(200);
     expect(res.body.length).toBe(1);
 
     // Update remaining and metadata
     res = await request(app)
       .put(`/api/beans/${id}`)
+      .set('Authorization', auth)
       .send({ remaining: 150, origin: 'Colombia', roast: 'Medium', masl: '1500' });
     expect(res.status).toBe(200);
     expect(res.body.remaining).toBe(150);
     expect(res.body.origin).toBe('Colombia');
 
     // Delete
-    res = await request(app).delete(`/api/beans/${id}`);
+    res = await request(app).delete(`/api/beans/${id}`).set('Authorization', auth);
     expect(res.status).toBe(200);
     // Check empty
-    res = await request(app).get('/api/beans');
+    res = await request(app).get('/api/beans').set('Authorization', auth);
     expect(res.status).toBe(200);
     expect(res.body.length).toBe(0);
   });

@@ -4,8 +4,19 @@ test('scaling a recipe saves the scaled values in the brew payload', async ({ pa
   let beanId = '';
   let recipeId = '';
   let createdBrewId = '';
+  let token = '';
   try {
     await page.goto('/');
+    // Register via UI
+    await page.click('text=Login / Register');
+    await page.fill('#auth-username', 'e2e-scale-user-' + Date.now());
+    await page.fill('#auth-password', 'password123');
+    await page.click('#auth-register-btn');
+    // Wait for modal to be hidden and user info present
+    await page.waitForSelector('#login-modal', { state: 'hidden' });
+    await page.waitForSelector("text=Hello,", { state: 'visible' });
+    // Get token from localStorage
+    token = await page.evaluate(() => localStorage.getItem('AUTH_TOKEN'));
   // Create a recipe via UI
   await page.click('#customize-btn');
   await page.waitForSelector('#recipe-modal');
@@ -43,7 +54,7 @@ test('scaling a recipe saves the scaled values in the brew payload', async ({ pa
   // Wait for saved
   await page.waitForSelector('#save-message', { state: 'visible' });
   // Verify via API that brew recipe saved uses scaled value (45)
-  const resp = await page.request.get('/api/brews');
+  const resp = await page.request.get('/api/brews', { headers: { Authorization: `Bearer ${token}` } });
   const brews = await resp.json();
   const found = brews.find((b: any) => b.beanBagId === beanId || b.beans === beanName || (b.recipe && b.recipe.name === recipeName));
   expect(found).toBeDefined();
@@ -55,9 +66,9 @@ test('scaling a recipe saves the scaled values in the brew payload', async ({ pa
   } finally {
     // Cleanup: delete created brew, bean, and recipe
     try {
-      if (createdBrewId) await page.request.delete(`/api/brews/${createdBrewId}`);
-      if (beanId) await page.request.delete(`/api/beans/${beanId}`);
-      if (recipeId) await page.request.delete(`/api/recipes/${recipeId}`);
+      if (createdBrewId) await page.request.delete(`/api/brews/${createdBrewId}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (beanId) await page.request.delete(`/api/beans/${beanId}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (recipeId) await page.request.delete(`/api/recipes/${recipeId}`, { headers: { Authorization: `Bearer ${token}` } });
     } catch (err) { console.warn('Cleanup save-brew-scaled test failed', err); }
   }
 });

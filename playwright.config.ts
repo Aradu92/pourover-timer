@@ -5,12 +5,12 @@ export default defineConfig({
   timeout: 30000,
   use: {
     headless: true,
-    baseURL: 'http://localhost:3000'
+    baseURL: `http://localhost:${process.env.PORT || 3000}`
   }
   ,
   webServer: {
     command: 'node ./scripts/start-with-temp-data.js',
-    url: 'http://localhost:3000',
+    url: `http://localhost:${process.env.PORT || 3000}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000
   }

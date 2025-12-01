@@ -67,6 +67,165 @@ function formatTime(seconds) {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
+// Helper to return Authorization header if token is set in localStorage
+function getAuthHeaders() {
+    try {
+        const token = localStorage.getItem('AUTH_TOKEN');
+        if (token) return { 'Authorization': `Bearer ${token}` };
+    } catch (err) {
+        // ignore - localStorage not available in some contexts
+    }
+    return {};
+}
+
+// API base derived from current origin to avoid hard-coded localhost
+const API_BASE = (window && window.location && window.location.origin) ? window.location.origin : 'http://localhost:3000';
+
+// Auth helpers: show/hide the login modal, and handle login/register/logout
+function openLoginModal() {
+    const modal = document.getElementById('login-modal');
+    if (modal) modal.classList.remove('hidden');
+}
+function closeLoginModal() {
+    const modal = document.getElementById('login-modal');
+    const err = document.getElementById('auth-error');
+    if (err) { err.textContent = ''; err.classList.add('hidden'); }
+    if (modal) modal.classList.add('hidden');
+}
+
+async function performLogin(username, password) {
+    try {
+        // Quick sanity ping to API to detect cross-origin or server not running issues
+        try {
+            const ping = await fetch(`${API_BASE}/api/ping`, { headers: getAuthHeaders() });
+            if (!ping.ok) throw new Error('API ping failed');
+        } catch (err) {
+            const el = document.getElementById('auth-error');
+            if (el) { el.classList.remove('hidden'); el.textContent = `API not reachable at ${API_BASE}`; }
+            console.warn('API ping failed', err);
+            return;
+        }
+        const res = await fetch(`${API_BASE}/api/users/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ username, password }) });
+        let body;
+        const contentType = res.headers.get('content-type') || '';
+        try {
+            if (contentType.indexOf('application/json') !== -1) {
+                body = await res.json();
+            } else {
+                const text = await res.text();
+                body = { error: `Non-JSON response: ${text}` };
+            }
+        } catch (e) {
+            const text = await res.text();
+            body = { error: `Parse error: ${text}` };
+        }
+        console.log('performLogin response status:', res.status, 'content-type:', res.headers.get('content-type'), 'body:', body);
+        if (!res.ok) throw new Error(body.message || body.error || `Login failed (status ${res.status})`);
+        if (body.token) {
+            localStorage.setItem('AUTH_TOKEN', body.token);
+            await refreshAuthUI();
+            closeLoginModal();
+            // reload lists that are user-scoped
+            loadBeans(); loadRecipes(); loadGrinders(); loadBrews(); refreshAnalytics();
+            // Show warning if pwned
+            if (body.warning) {
+                const warnEl = document.getElementById('auth-warning');
+                if (warnEl) { warnEl.classList.remove('hidden'); warnEl.textContent = body.warning; }
+            }
+        }
+    } catch (err) {
+        const msg = (err && err.message) ? err.message : 'Login failed';
+        const el = document.getElementById('auth-error');
+        if (el) { el.classList.remove('hidden'); el.textContent = msg; }
+        console.warn('Login failed', err);
+    }
+}
+
+async function performRegister(username, password) {
+    try {
+        // Check API reachable first
+        try {
+            const ping = await fetch(`${API_BASE}/api/ping`, { headers: getAuthHeaders() });
+            if (!ping.ok) throw new Error('API ping failed');
+        } catch (err) {
+            const el = document.getElementById('auth-error');
+            if (el) { el.classList.remove('hidden'); el.textContent = `API not reachable at ${API_BASE}`; }
+            console.warn('API ping failed', err);
+            return;
+        }
+        const res = await fetch(`${API_BASE}/api/users/register`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ username, password }) });
+        let body;
+        const contentType = res.headers.get('content-type') || '';
+        try {
+            if (contentType.indexOf('application/json') !== -1) {
+                body = await res.json();
+            } else {
+                const text = await res.text();
+                body = { error: `Non-JSON response: ${text}` };
+            }
+        } catch (e) {
+            const text = await res.text();
+            body = { error: `Parse error: ${text}` };
+        }
+        console.log('performRegister response status:', res.status, 'content-type:', res.headers.get('content-type'), 'body:', body);
+        if (!res.ok) throw new Error(body.message || body.error || `Registration failed (status ${res.status})`);
+        if (body.token) {
+            localStorage.setItem('AUTH_TOKEN', body.token);
+            await refreshAuthUI();
+            closeLoginModal();
+            loadBeans(); loadRecipes(); loadGrinders(); loadBrews(); refreshAnalytics();
+            if (body.warning) {
+                const warnEl = document.getElementById('auth-warning');
+                if (warnEl) { warnEl.classList.remove('hidden'); warnEl.textContent = body.warning; }
+            }
+        }
+    } catch (err) {
+        const msg = (err && err.message) ? err.message : 'Registration failed';
+        const el = document.getElementById('auth-error');
+        if (el) { el.classList.remove('hidden'); el.textContent = msg; }
+        console.warn('Registration failed', err);
+    }
+}
+
+async function performLogout() {
+    // Clear auth token and update UI
+    localStorage.removeItem('AUTH_TOKEN');
+    await refreshAuthUI();
+    // reload lists to show none user-specific data
+    loadBeans(); loadRecipes(); loadGrinders(); loadBrews(); refreshAnalytics();
+}
+
+async function getCurrentUser() {
+    try {
+        const resp = await fetch(`${API_BASE}/api/users/me`, { headers: { ...getAuthHeaders() } });
+        if (!resp.ok) return null;
+        const body = await resp.json();
+        return body;
+    } catch (err) { return null; }
+}
+
+async function refreshAuthUI() {
+    const area = document.getElementById('auth-area');
+    if (!area) return;
+    const user = await getCurrentUser();
+    area.innerHTML = '';
+    if (user && user.username) {
+        const el = document.createElement('div');
+        el.className = 'flex items-center gap-2';
+        el.innerHTML = `<div class="text-sm text-gray-700">Hello, <strong>${user.username}</strong></div> <button id='logout-top-btn' class='bg-red-500 hover:bg-red-600 text-white font-bold py-1 px-3 rounded'>Logout</button>`;
+        area.appendChild(el);
+        const btn = document.getElementById('logout-top-btn');
+        if (btn) btn.addEventListener('click', (e) => { e.preventDefault(); performLogout(); });
+    } else {
+        const loginBtn = document.createElement('button');
+        loginBtn.id = 'login-top-btn';
+        loginBtn.className = 'bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-3 rounded';
+        loginBtn.textContent = 'Login / Register';
+        loginBtn.addEventListener('click', (e) => { e.preventDefault(); openLoginModal(); });
+        area.appendChild(loginBtn);
+    }
+}
+
 function updateDisplay() {
     console.log('Updating display - Time remaining:', timeRemaining, 'Stage:', currentStageIndex);
     const timerDisplay = document.getElementById('timer-display');
@@ -629,6 +788,11 @@ async function saveBrew(beans, rating, origin, roast, masl, notes, grinder, grin
     };
     
     try {
+        // Require auth token to save brew
+        const token = localStorage.getItem('AUTH_TOKEN');
+        if (!token) { openLoginModal(); return; }
+        const headerDebug = getAuthHeaders();
+        console.log('saveBrew headers include Authorization:', !!headerDebug.Authorization);
         // Build body and omit null/invalid fields to avoid server validation errors
         const payload = {
             beans,
@@ -644,10 +808,11 @@ async function saveBrew(beans, rating, origin, roast, masl, notes, grinder, grin
         if (grindSize !== null && grindSize !== undefined && !isNaN(grindSize)) payload.grindSize = grindSize;
         if (beansUsed !== null && beansUsed !== undefined && !isNaN(beansUsed)) payload.beansUsed = beansUsed;
 
-        const response = await fetch('http://localhost:3000/api/brews', {
-            method: 'POST',
+        const response = await fetch(`${API_BASE}/api/brews`, {
+              method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                 'Content-Type': 'application/json',
+                 ...getAuthHeaders()
             },
             body: JSON.stringify(payload)
         });
@@ -666,6 +831,10 @@ async function saveBrew(beans, rating, origin, roast, masl, notes, grinder, grin
             // Update beans inventory list after saving
             loadBeans();
         } else {
+            if (response.status === 401 || response.status === 403) {
+                openLoginModal();
+                return alert('Not authorized. Please login.');
+            }
             let bodyText = '';
             try {
                 const data = await response.json();
@@ -687,12 +856,12 @@ async function saveBrew(beans, rating, origin, roast, masl, notes, grinder, grin
 async function loadBrews() {
     console.log('Loading brews...');
     try {
-        const response = await fetch('http://localhost:3000/api/brews');
+        const response = await fetch(`${API_BASE}/api/brews`, { headers: { ...getAuthHeaders() } });
         const brews = await response.json();
         // Also fetch bean bags to map names
         let beanMap = {};
         try {
-            const beansResp = await fetch('http://localhost:3000/api/beans');
+            const beansResp = await fetch(`${API_BASE}/api/beans`, { headers: { ...getAuthHeaders() } });
             if (beansResp.ok) {
                 const beans = await beansResp.json();
                 beans.forEach(b => { beanMap[b.id] = b; });
@@ -748,8 +917,14 @@ async function deleteBrew(brewId) {
     }
     
     try {
-        const response = await fetch(`http://localhost:3000/api/brews/${brewId}`, {
-            method: 'DELETE'
+        // Require auth token before deleting
+        const token = localStorage.getItem('AUTH_TOKEN');
+        if (!token) { openLoginModal(); return; }
+        const headerDebug = getAuthHeaders();
+        console.log('deleteBrew headers include Authorization:', !!headerDebug.Authorization);
+        const response = await fetch(`${API_BASE}/api/brews/${brewId}`, {
+            method: 'DELETE',
+            headers: { ...getAuthHeaders() }
         });
         
         if (response.ok) {
@@ -768,7 +943,7 @@ async function deleteBrew(brewId) {
 async function loadRecipes() {
     console.log('Loading recipes...');
     try {
-        const response = await fetch('http://localhost:3000/api/recipes');
+        const response = await fetch(`${API_BASE}/api/recipes`, { headers: { ...getAuthHeaders() } });
         const recipes = await response.json();
         console.log('Loaded recipes:', recipes);
 
@@ -804,7 +979,7 @@ async function loadRecipes() {
 async function loadGrinders() {
     console.log('Loading grinders...');
     try {
-        const response = await fetch('http://localhost:3000/api/grinders');
+        const response = await fetch(`${API_BASE}/api/grinders`, { headers: { ...getAuthHeaders() } });
         const grinders = await response.json();
         console.log('Loaded grinders:', grinders);
 
@@ -868,7 +1043,7 @@ async function loadGrinders() {
 async function loadBeans() {
     console.log('Loading bean bags...');
     try {
-        const response = await fetch('http://localhost:3000/api/beans');
+        const response = await fetch(`${API_BASE}/api/beans`, { headers: { ...getAuthHeaders() } });
         const beans = await response.json();
         console.log('Loaded beans:', beans);
         const savedBeansSelect = document.getElementById('saved-beans');
@@ -996,11 +1171,14 @@ async function saveBean() {
     if (remaining !== undefined && (isNaN(remaining) || remaining < 0 || remaining > bagSize)) return alert('Please enter a valid remaining value between 0 and the bag size');
     const editingId = document.getElementById('editing-bean-id')?.value || null;
     try {
+        // require auth before saving
+        const token = localStorage.getItem('AUTH_TOKEN');
+        if (!token) { openLoginModal(); return; }
         let resp;
         if (editingId) {
-            resp = await fetch(`http://localhost:3000/api/beans/${editingId}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, bagSize, remaining, origin, roast, masl}) });
+            resp = await fetch(`${API_BASE}/api/beans/${editingId}`, { method: 'PUT', headers: {'Content-Type': 'application/json', ...getAuthHeaders()}, body: JSON.stringify({name, bagSize, remaining, origin, roast, masl}) });
         } else {
-            resp = await fetch('http://localhost:3000/api/beans', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, bagSize, remaining, origin, roast, masl}) });
+            resp = await fetch(`${API_BASE}/api/beans`, { method: 'POST', headers: {'Content-Type': 'application/json', ...getAuthHeaders()}, body: JSON.stringify({name, bagSize, remaining, origin, roast, masl}) });
         }
         if (resp.ok) {
             nameInput.value = '';
@@ -1012,7 +1190,14 @@ async function saveBean() {
             loadBeans();
             alert(editingId ? 'Bean bag updated' : 'Bean bag saved');
         } else {
-            alert('Failed to save bean bag');
+            if (resp.status === 401 || resp.status === 403) {
+                openLoginModal();
+                return alert('Not authorized. Please login.');
+            }
+            try {
+                const body = await resp.json();
+                alert(body.error || body.message || 'Failed to save bean bag');
+            } catch (e) { alert('Failed to save bean bag'); }
         }
     } catch (err) {
         console.error('Error saving bean', err);
@@ -1041,15 +1226,26 @@ async function deleteBean() {
     if (!sel || !sel.value) return alert('Select a bean to delete');
     if (!confirm('Delete this bean bag?')) return;
     try {
+        // Require auth token before deleting
+        const token = localStorage.getItem('AUTH_TOKEN');
+        if (!token) { openLoginModal(); return; }
+        const headerDebug = getAuthHeaders();
+        console.log('deleteBean headers include Authorization:', !!headerDebug.Authorization);
         const id = sel.value;
-        const resp = await fetch(`http://localhost:3000/api/beans/${id}`, { method: 'DELETE' });
+        const resp = await fetch(`${API_BASE}/api/beans/${id}`, { method: 'DELETE', headers: { ...getAuthHeaders() } });
         if (resp.ok) {
             document.getElementById('bean-name-grid').value = '';
             document.getElementById('bean-bag-size-grid').value = '';
             loadBeans();
             alert('Bean bag deleted');
         } else {
-            alert('Failed to delete bean bag');
+            if (resp.status === 401 || resp.status === 403) {
+                openLoginModal();
+                return alert('Not authorized. Please login.');
+            }
+            const txt = await resp.text();
+            console.error('Failed to delete bean', resp.status, txt);
+            alert('Failed to delete bean bag: ' + txt);
         }
     } catch (err) {
         console.error('Error deleting bean', err);
@@ -1064,18 +1260,23 @@ async function saveGrinder() {
     const notes = notesInput?.value?.trim();
     if (!name) return alert('Please enter a grinder name');
     try {
+        // Require auth token to save grinder
+        const token = localStorage.getItem('AUTH_TOKEN');
+        if (!token) { openLoginModal(); return; }
+        const headerDebug = getAuthHeaders();
+        console.log('saveGrinder headers include Authorization:', !!headerDebug.Authorization);
         let resp;
         if (editingGrinderId) {
             // update
-            resp = await fetch(`http://localhost:3000/api/grinders/${editingGrinderId}`, {
+            resp = await fetch(`${API_BASE}/api/grinders/${editingGrinderId}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                 body: JSON.stringify({ name, notes })
             });
         } else {
-            resp = await fetch('http://localhost:3000/api/grinders', {
+            resp = await fetch(`${API_BASE}/api/grinders`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                 body: JSON.stringify({ name, notes })
             });
         }
@@ -1090,11 +1291,19 @@ async function saveGrinder() {
             loadGrinders();
             alert(wasEditing ? 'Grinder updated' : 'Grinder saved');
         } else {
-            alert('Failed to save grinder');
+            if (resp.status === 401 || resp.status === 403) {
+                // Not authorized: prompt re-login
+                openLoginModal();
+                return alert('Not authorized. Please login.');
+            }
+            try {
+                const body = await resp.json();
+                alert(body.error || body.message || 'Failed to save grinder');
+            } catch (e) { alert('Failed to save grinder'); }
         }
     } catch (err) {
         console.error('Error saving grinder', err);
-        alert('Failed to save grinder');
+        alert('Failed to save grinder: ' + (err && err.message || 'unknown'));
     }
 }
 
@@ -1103,13 +1312,24 @@ async function deleteGrinder() {
     if (!savedGrinders || !savedGrinders.value) return alert('Select a grinder to delete');
     if (!confirm('Are you sure you want to delete this grinder?')) return;
     try {
+        // Require auth token before deleting
+        const token = localStorage.getItem('AUTH_TOKEN');
+        if (!token) { openLoginModal(); return; }
+        const headerDebug = getAuthHeaders();
+        console.log('deleteGrinder headers include Authorization:', !!headerDebug.Authorization);
         const id = savedGrinders.value;
-        const resp = await fetch(`http://localhost:3000/api/grinders/${id}`, { method: 'DELETE' });
+        const resp = await fetch(`${API_BASE}/api/grinders/${id}`, { method: 'DELETE', headers: { ...getAuthHeaders() } });
         if (resp.ok) {
             loadGrinders();
             alert('Grinder deleted');
         } else {
-            alert('Failed to delete grinder');
+            if (resp.status === 401 || resp.status === 403) {
+                openLoginModal();
+                return alert('Not authorized. Please login.');
+            }
+            const txt = await resp.text();
+            console.error('Failed to delete grinder', resp.status, txt);
+            alert('Failed to delete grinder: ' + txt);
         }
     } catch (err) {
         console.error('Error deleting grinder', err);
@@ -1132,6 +1352,7 @@ async function editGrinder() {
 }
 
 let editingRecipeId = null;
+let editingGrinderId = null;
 async function saveRecipe() {
     console.log('Saving recipe...');
     const recipeName = document.getElementById('recipe-name').value || 'Custom Recipe';
@@ -1153,21 +1374,26 @@ async function saveRecipe() {
     }
     
     try {
+            // Require auth token to save recipe
+            const token = localStorage.getItem('AUTH_TOKEN');
+            if (!token) { openLoginModal(); return; }
+            const headerDebug = getAuthHeaders();
+            console.log('saveRecipe headers include Authorization:', !!headerDebug.Authorization);
             // If editingRecipeId is set, update instead of creating a new one
         const existingId = document.getElementById('editing-recipe-id')?.value || editingRecipeId;
         if (existingId) {
                     // If no editing id is set, check if a recipe with the same name and stages exists
                     // to avoid creating duplicates when user saves an unchanged recipe.
                     try {
-                        const checkResp = await fetch('http://localhost:3000/api/recipes');
+                        const checkResp = await fetch(`${API_BASE}/api/recipes`, { headers: { ...getAuthHeaders() } });
                         if (checkResp.ok) {
                             const recipes = await checkResp.json();
                             const matching = recipes.find(r => r.name === recipeName && JSON.stringify(r.stages) === JSON.stringify(stages));
                             if (matching) {
                                 // Update the matching recipe rather than create a new one
-                                const response = await fetch(`http://localhost:3000/api/recipes/${matching.id}`, {
+                                const response = await fetch(`${API_BASE}/api/recipes/${matching.id}`, {
                                     method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
+                                    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                                     body: JSON.stringify({ name: recipeName, stages })
                                 });
                                 if (response.ok) {
@@ -1181,9 +1407,9 @@ async function saveRecipe() {
                         console.warn('Error checking for duplicate recipe before create', err);
                     }
             // Update
-            const response = await fetch(`http://localhost:3000/api/recipes/${existingId}`, {
+            const response = await fetch(`${API_BASE}/api/recipes/${existingId}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                 body: JSON.stringify({ name: recipeName, stages, baseBeans })
             });
             if (response.ok) {
@@ -1196,10 +1422,11 @@ async function saveRecipe() {
                 console.error('Failed to update recipe');
             }
         }
-        const response = await fetch('http://localhost:3000/api/recipes', {
+        const response = await fetch(`${API_BASE}/api/recipes`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...getAuthHeaders()
             },
             body: JSON.stringify({ name: recipeName, stages, baseBeans })
         });
@@ -1209,7 +1436,19 @@ async function saveRecipe() {
             alert('Recipe saved successfully!');
             loadRecipes();
         } else {
-            console.error('Failed to save recipe');
+            if (response.status === 401 || response.status === 403) {
+                openLoginModal();
+                return alert('Not authorized. Please login.');
+            }
+            try {
+                const body = await response.json();
+                console.error('Failed to save recipe', response.status, body);
+                alert(body.error || body.message || 'Failed to save recipe');
+            } catch (err) {
+                const txt = await response.text();
+                console.error('Failed to save recipe', response.status, txt);
+                alert('Failed to save recipe: ' + txt);
+            }
         }
     } catch (error) {
         console.error('Error saving recipe:', error);
@@ -1435,9 +1674,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!savedRecipes || !savedRecipes.value) return alert('Select a recipe to delete');
             if (!confirm('Are you sure you want to delete this recipe?')) return;
             try {
+                // Require auth token before deleting recipe
+                const token = localStorage.getItem('AUTH_TOKEN');
+                if (!token) { openLoginModal(); return; }
+                const headerDebug = getAuthHeaders();
+                console.log('deleteRecipe headers include Authorization:', !!headerDebug.Authorization);
                 const id = savedRecipes.value;
                 console.log('Attempting to delete recipe id=', id);
-                const resp = await fetch(`http://localhost:3000/api/recipes/${id}`, { method: 'DELETE' });
+                const resp = await fetch(`${API_BASE}/api/recipes/${id}`, { method: 'DELETE', headers: { ...getAuthHeaders() } });
                 console.log('Delete response status:', resp.status, resp.statusText);
                 if (resp.ok) {
                     document.getElementById('editing-recipe-id').value = '';
@@ -1447,6 +1691,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     loadRecipes();
                     alert('Recipe deleted');
                 } else {
+                    if (resp.status === 401 || resp.status === 403) {
+                        openLoginModal();
+                        return alert('Not authorized. Please login.');
+                    }
                     const text = await resp.text();
                     console.error('Delete recipe failed:', resp.status, text);
                     alert(`Failed to delete recipe: ${resp.status} ${resp.statusText} - ${text}`);
@@ -1653,6 +1901,14 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshAnalytics();
     
     console.log('Event listeners setup complete');
+    // Initialize auth UI and bind modal button handlers
+    refreshAuthUI();
+    const authLogin = document.getElementById('auth-login-btn');
+    if (authLogin) authLogin.addEventListener('click', (e) => { e.preventDefault(); const u = document.getElementById('auth-username').value; const p = document.getElementById('auth-password').value; performLogin(u, p); });
+    const authRegister = document.getElementById('auth-register-btn');
+    if (authRegister) authRegister.addEventListener('click', (e) => { e.preventDefault(); const u = document.getElementById('auth-username').value; const p = document.getElementById('auth-password').value; performRegister(u, p); });
+    const authCancel = document.getElementById('auth-cancel-btn');
+    if (authCancel) authCancel.addEventListener('click', (e) => { e.preventDefault(); closeLoginModal(); });
 });
 
 // Analytics functions
@@ -1661,7 +1917,7 @@ let grinderChart = null;
 async function refreshAnalytics() {
     console.log('refreshAnalytics: starting');
     try {
-        const response = await fetch('http://localhost:3000/api/brews');
+        const response = await fetch('http://localhost:3000/api/brews', { headers: { ...getAuthHeaders() } });
         const brews = await response.json();
         console.log('refreshAnalytics: fetched', brews.length, 'brews');
 
@@ -2272,7 +2528,7 @@ function exportFilteredCsv() {
     refreshAnalytics(); // ensure latest
     setTimeout(async () => {
         try {
-            const resp = await fetch('http://localhost:3000/api/brews');
+            const resp = await fetch(`${API_BASE}/api/brews`, { headers: { ...getAuthHeaders() } });
             const allBrews = await resp.json();
             const filtered = filterBrews(allBrews);
             if (!filtered || filtered.length === 0) {

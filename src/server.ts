@@ -2,18 +2,128 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 const app = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../data');
 const DATA_FILE = path.join(DATA_DIR, 'brews.json');
 const RECIPES_FILE = path.join(DATA_DIR, 'recipes.json');
 const GRINDERS_FILE = path.join(DATA_DIR, 'grinders.json');
 const BEANS_FILE = path.join(DATA_DIR, 'beans.json');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
 
 app.use(cors());
 app.use(express.json());
+
+// Debug: log all incoming requests (method + path) BEFORE static so we can see the incoming calls
+function sanitizeForLog(obj: any) {
+  try {
+    return JSON.parse(JSON.stringify(obj, (k, v) => {
+      if (!k) return v; // top-level object
+      const low = String(k).toLowerCase();
+      if (low.includes('password') || low === 'token' || low === 'authorization' || low === 'auth' || low === 'jwt') {
+        return '[REDACTED]';
+      }
+      return v;
+    }));
+  } catch (err) {
+    return '[unserializable]';
+  }
+}
+
+app.use((req: Request, res: Response, next: any) => {
+  const body = req.body ? sanitizeForLog(req.body) : undefined;
+  console.log('Incoming request:', req.method, req.path, body ? { body } : '');
+  next();
+});
+
 app.use(express.static(path.join(__dirname, '../public')));
+
+// JWT secret configuration: require a set secret in production; otherwise generate a secure ephemeral secret.
+let JWT_SECRET = process.env.JWT_SECRET || '';
+if (!JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('ERROR: JWT_SECRET is required in production; set JWT_SECRET environment variable and restart.');
+    process.exit(1);
+  }
+  // Generate an ephemeral secret for development/testing runs
+  JWT_SECRET = crypto.randomBytes(64).toString('hex');
+  console.info('Info: JWT_SECRET not provided — using an ephemeral secret for development/test only. Do not use this in production.');
+}
+
+interface User {
+  id: string;
+  username: string;
+  email?: string;
+  passwordHash: string;
+}
+
+function ensureUsersFile() {
+  ensureDataFile(USERS_FILE);
+}
+
+function readUsers(): User[] {
+  ensureUsersFile();
+  try {
+    const data = fs.readFileSync(USERS_FILE, 'utf-8');
+    return JSON.parse(data || '[]');
+  } catch (err) {
+    return [];
+  }
+}
+
+function writeUsers(users: User[]) {
+  ensureUsersFile();
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+}
+
+function generateTokenForUser(user: User) {
+  return jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
+}
+
+// Check a password against the HaveIBeenPwned API (k-anonymity).
+// Returns count or 0 if not found. If fetch not available or fails, returns 0.
+async function checkPwnedPasswordCount(password: string): Promise<number> {
+  if (!password) return 0;
+  try {
+    const sha1 = crypto.createHash('sha1').update(password).digest('hex').toUpperCase();
+    const prefix = sha1.slice(0, 5);
+    const suffix = sha1.slice(5);
+    const resp = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`, { headers: { 'User-Agent': 'pourover-timer' } });
+    if (!resp.ok) return 0;
+    const text = await resp.text();
+    const lines = text.split('\n');
+    for (const line of lines) {
+      const [s, countStr] = line.split(':');
+      if (!s) continue;
+      if (s.trim().toUpperCase() === suffix) return parseInt((countStr || '0').trim(), 10) || 0;
+    }
+    return 0;
+  } catch (err) {
+    console.warn('Failed to check pwned password:', err);
+    return 0;
+  }
+}
+
+function authenticate(req: Request, res: Response, next: any) {
+  const h = req.headers.authorization;
+  if (!h) return res.status(401).json({ error: 'Missing Authorization header' });
+  const parts = h.split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer') return res.status(401).json({ error: 'Invalid Authorization header format' });
+  const token = parts[1];
+  try {
+    const secret = JWT_SECRET;
+    const payload = jwt.verify(token, secret) as any;
+    (req as any).user = { id: payload.id, username: payload.username };
+    next();
+  } catch (err) {
+    console.warn('Invalid token for request', req.method, req.path, {ip: req.ip});
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
 
 interface Brew {
   id: string;
@@ -78,20 +188,112 @@ function ensureDataFile(filePath: string): void {
 }
 
 // Get all brews
-app.get('/api/brews', (req: Request, res: Response) => {
+app.get('/api/brews', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(DATA_FILE);
     const data = fs.readFileSync(DATA_FILE, 'utf-8');
     const brews: Brew[] = JSON.parse(data);
-    res.json(brews);
+    // Only return brews owned by the user
+    const userId = (req as any).user.id;
+    res.json(brews.filter(b => (b as any).userId === userId));
   } catch (error) {
     res.status(500).json({ error: 'Failed to read brews' });
   }
 });
 
+// User registration
+app.post('/api/users/register', async (req: Request, res: Response) => {
+  try {
+    // Avoid logging sensitive fields like password
+    console.log('POST /api/users/register', { username: req.body && req.body.username });
+    // Optionally check if the password exists in known breaches and warn in logs
+    const pwnCount = await checkPwnedPasswordCount(req.body && req.body.password);
+    if (pwnCount > 0) {
+      console.warn('Password for user', req.body && req.body.username, 'was found in', pwnCount, 'breaches');
+    }
+    const { username, email, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    const users = readUsers();
+    if (users.find(u => u.username === username)) return res.status(400).json({ error: 'Username already exists' });
+    const id = Date.now().toString();
+    const passwordHash = bcrypt.hashSync(password, 8);
+    const newUser: User = { id, username, email, passwordHash };
+    users.push(newUser);
+    writeUsers(users);
+    const token = generateTokenForUser(newUser);
+    const respBody: any = { id, username, email, token };
+    if (pwnCount > 0) {
+      respBody.warning = `Password found in ${pwnCount} data breaches; consider changing your password`;
+    }
+    res.status(201).json(respBody);
+  } catch (err) {
+    console.error('Error in /api/users/register', err);
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+// User login
+app.post('/api/users/login', async (req: Request, res: Response) => {
+  try {
+    console.log('POST /api/users/login', { username: req.body && req.body.username });
+    const pwnCount = await checkPwnedPasswordCount(req.body && req.body.password);
+    if (pwnCount > 0) {
+      console.warn('Password for login user', req.body && req.body.username, 'was found in', pwnCount, 'breaches');
+    }
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    const users = readUsers();
+    const user = users.find(u => u.username === username);
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!bcrypt.compareSync(password, user.passwordHash)) return res.status(401).json({ error: 'Invalid credentials' });
+    const token = generateTokenForUser(user);
+    const respBody: any = { token, id: user.id, username: user.username };
+    if (pwnCount > 0) {
+      respBody.warning = `Password found in ${pwnCount} data breaches; consider changing your password`;
+    }
+    res.json(respBody);
+  } catch (err) {
+    console.error('Error in /api/users/login', err);
+    res.status(500).json({ error: 'Failed to login' });
+  }
+});
+
+// Get current user
+app.get('/api/users/me', authenticate, (req: Request, res: Response) => {
+  const userId = (req as any).user.id;
+  const users = readUsers();
+  const user = users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json({ id: user.id, username: user.username, email: user.email });
+});
+
+// Ping API to verify connectivity
+app.get('/api/ping', (req: Request, res: Response) => {
+  res.json({ ok: true });
+});
+
+// Dev-only debug endpoint to inspect auth header and validate token
+if (process.env.NODE_ENV !== 'production') {
+  app.get('/api/debug/auth', (req: Request, res: Response) => {
+    const h = req.headers.authorization;
+    if (!h) return res.json({ ok: true, auth: false, reason: 'No Authorization header' });
+    const parts = h.split(' ');
+    if (parts.length !== 2 || parts[0] !== 'Bearer') return res.json({ ok: true, auth: false, reason: 'Bad formatting' });
+    const token = parts[1];
+    try {
+      const payload: any = jwt.verify(token, JWT_SECRET) as any;
+      return res.json({ ok: true, auth: true, payload: { id: payload.id, username: payload.username } });
+    } catch (err) {
+      return res.json({ ok: true, auth: false, reason: 'Invalid token' });
+    }
+  });
+}
+
+// NOTE: API catch-all moved to the end of file to avoid shadowing routes defined later
+
 // Save a new brew
-app.post('/api/brews', (req: Request, res: Response) => {
-  console.log('POST /api/brews payload:', JSON.stringify(req.body));
+app.post('/api/brews', authenticate, (req: Request, res: Response) => {
+  console.log('POST /api/brews', sanitizeForLog(req.body));
   try {
     ensureDataFile(DATA_FILE);
     const data = fs.readFileSync(DATA_FILE, 'utf-8');
@@ -119,7 +321,7 @@ app.post('/api/brews', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid beansUsed value' });
     }
 
-    const newBrew: Brew = {
+    const newBrew: Brew & { userId?: string } = {
       id: Date.now().toString(),
       timestamp: new Date().toISOString(),
       beans: req.body.beans || 'Unknown',
@@ -134,6 +336,8 @@ app.post('/api/brews', (req: Request, res: Response) => {
       recipe: req.body.recipe,
       notes: req.body.notes
     };
+    // associate user
+    newBrew.userId = (req as any).user.id;
 
     brews.push(newBrew);
     fs.writeFileSync(DATA_FILE, JSON.stringify(brews, null, 2));
@@ -165,13 +369,17 @@ app.post('/api/brews', (req: Request, res: Response) => {
 });
 
 // Delete a brew
-app.delete('/api/brews/:id', (req: Request, res: Response) => {
+app.delete('/api/brews/:id', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(DATA_FILE);
     const data = fs.readFileSync(DATA_FILE, 'utf-8');
     let brews: Brew[] = JSON.parse(data);
-    
     const brewId = req.params.id;
+    const userId = (req as any).user.id;
+    // Only delete if the brew belongs to the user
+    const brew = brews.find(b => b.id === brewId);
+    if (!brew) return res.status(404).json({ error: 'Brew not found' });
+    if ((brew as any).userId !== userId) return res.status(403).json({ error: 'Forbidden' });
     brews = brews.filter(brew => brew.id !== brewId);
     
     fs.writeFileSync(DATA_FILE, JSON.stringify(brews, null, 2));
@@ -182,42 +390,45 @@ app.delete('/api/brews/:id', (req: Request, res: Response) => {
 });
 
 // Get all recipes
-app.get('/api/recipes', (req: Request, res: Response) => {
+app.get('/api/recipes', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(RECIPES_FILE);
     const data = fs.readFileSync(RECIPES_FILE, 'utf-8');
-    const recipes: Recipe[] = JSON.parse(data);
-    res.json(recipes);
+    const recipes: (Recipe & { userId?: string })[] = JSON.parse(data);
+    const userId = (req as any).user.id;
+    res.json(recipes.filter(r => (r as any).userId === userId));
   } catch (error) {
     res.status(500).json({ error: 'Failed to read recipes' });
   }
 });
 
 // Grinders endpoints
-app.get('/api/grinders', (req: Request, res: Response) => {
+app.get('/api/grinders', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(GRINDERS_FILE);
     const data = fs.readFileSync(GRINDERS_FILE, 'utf-8');
-    const grinders: Grinder[] = JSON.parse(data);
-    res.json(grinders);
+    const grinders: (Grinder & { userId?: string })[] = JSON.parse(    cd /home/alradulescu/testCode/coffee && npm run start:devdata);
+    const userId = (req as any).user.id;
+    res.json(grinders.filter(g => (g as any).userId === userId));
   } catch (error) {
     res.status(500).json({ error: 'Failed to read grinders' });
   }
 });
 
 // Beans endpoints
-app.get('/api/beans', (req: Request, res: Response) => {
+app.get('/api/beans', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(BEANS_FILE);
     const data = fs.readFileSync(BEANS_FILE, 'utf-8');
-    const beans: BeanBag[] = JSON.parse(data);
-    res.json(beans);
+    const beans: BeanBag[] & { userId?: string }[] = JSON.parse(data);
+    const userId = (req as any).user.id;
+    res.json(beans.filter(b => (b as any).userId === userId));
   } catch (error) {
     res.status(500).json({ error: 'Failed to read beans' });
   }
 });
 
-app.post('/api/beans', (req: Request, res: Response) => {
+app.post('/api/beans', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(BEANS_FILE);
     const data = fs.readFileSync(BEANS_FILE, 'utf-8');
@@ -229,12 +440,13 @@ app.post('/api/beans', (req: Request, res: Response) => {
     if (isNaN(bagSize) || bagSize <= 0) {
       return res.status(400).json({ error: 'Invalid bagSize (must be number > 0)' });
     }
-    const newBean: BeanBag = {
+    const newBean: BeanBag & { userId?: string } = {
       id: Date.now().toString(),
       name: req.body.name,
       bagSize: bagSize,
       remaining: bagSize
     };
+    newBean.userId = (req as any).user.id;
     beans.push(newBean);
     fs.writeFileSync(BEANS_FILE, JSON.stringify(beans, null, 2));
     res.status(201).json(newBean);
@@ -243,7 +455,7 @@ app.post('/api/beans', (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/beans/:id', (req: Request, res: Response) => {
+app.put('/api/beans/:id', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(BEANS_FILE);
     const data = fs.readFileSync(BEANS_FILE, 'utf-8');
@@ -252,6 +464,7 @@ app.put('/api/beans/:id', (req: Request, res: Response) => {
     const { name, bagSize, remaining, origin, roast, masl } = req.body;
     const idx = beans.findIndex(b => b.id === id);
     if (idx === -1) return res.status(404).json({error: 'Bean bag not found'});
+    if ((beans[idx] as any).userId !== (req as any).user.id) return res.status(403).json({ error: 'Forbidden' });
     if (name && typeof name === 'string') beans[idx].name = name;
     if (bagSize !== undefined) {
       const bs = parseFloat(bagSize);
@@ -274,7 +487,7 @@ app.put('/api/beans/:id', (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/beans/:id', (req: Request, res: Response) => {
+app.delete('/api/beans/:id', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(BEANS_FILE);
     const data = fs.readFileSync(BEANS_FILE, 'utf-8');
@@ -282,6 +495,8 @@ app.delete('/api/beans/:id', (req: Request, res: Response) => {
     const id = req.params.id;
     const origLen = beans.length;
     beans = beans.filter(b => b.id !== id);
+    // Ensure we only removed user's beans
+    if (origLen === beans.length) return res.status(404).json({ error: 'Bean bag not found' });
     if (beans.length === origLen) return res.status(404).json({ error: 'Bean bag not found' });
     fs.writeFileSync(BEANS_FILE, JSON.stringify(beans, null, 2));
     res.json({ success: true });
@@ -290,7 +505,7 @@ app.delete('/api/beans/:id', (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/grinders', (req: Request, res: Response) => {
+app.post('/api/grinders', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(GRINDERS_FILE);
     const data = fs.readFileSync(GRINDERS_FILE, 'utf-8');
@@ -299,11 +514,12 @@ app.post('/api/grinders', (req: Request, res: Response) => {
     if (!name || typeof name !== 'string') {
       return res.status(400).json({ error: 'Invalid grinder name' });
     }
-    const newGrinder: Grinder = {
+    const newGrinder: Grinder & { userId?: string } = {
       id: Date.now().toString(),
       name: name.trim(),
       notes: notes || ''
     };
+    newGrinder.userId = (req as any).user.id;
     grinders.push(newGrinder);
     fs.writeFileSync(GRINDERS_FILE, JSON.stringify(grinders, null, 2));
     res.status(201).json(newGrinder);
@@ -312,12 +528,15 @@ app.post('/api/grinders', (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/grinders/:id', (req: Request, res: Response) => {
+app.delete('/api/grinders/:id', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(GRINDERS_FILE);
     const data = fs.readFileSync(GRINDERS_FILE, 'utf-8');
-    let grinders: Grinder[] = JSON.parse(data);
+    let grinders: (Grinder & { userId?: string })[] = JSON.parse(data);
     const id = req.params.id;
+    const idx = grinders.findIndex(g => g.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Grinder not found' });
+    if ((grinders[idx] as any).userId !== (req as any).user.id) return res.status(403).json({ error: 'Forbidden' });
     grinders = grinders.filter(g => g.id !== id);
     fs.writeFileSync(GRINDERS_FILE, JSON.stringify(grinders, null, 2));
     res.json({ success: true });
@@ -327,7 +546,7 @@ app.delete('/api/grinders/:id', (req: Request, res: Response) => {
 });
 
 // Update an existing grinder
-app.put('/api/grinders/:id', (req: Request, res: Response) => {
+app.put('/api/grinders/:id', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(GRINDERS_FILE);
     const data = fs.readFileSync(GRINDERS_FILE, 'utf-8');
@@ -341,6 +560,7 @@ app.put('/api/grinders/:id', (req: Request, res: Response) => {
     if (idx === -1) {
       return res.status(404).json({ error: 'Grinder not found' });
     }
+    if ((grinders[idx] as any).userId !== (req as any).user.id) return res.status(403).json({ error: 'Forbidden' });
     grinders[idx].name = name;
     grinders[idx].notes = notes || '';
     fs.writeFileSync(GRINDERS_FILE, JSON.stringify(grinders, null, 2));
@@ -351,19 +571,20 @@ app.put('/api/grinders/:id', (req: Request, res: Response) => {
 });
 
 // Save a new recipe
-app.post('/api/recipes', (req: Request, res: Response) => {
+app.post('/api/recipes', authenticate, (req: Request, res: Response) => {
   try {
-    console.log('POST /api/recipes payload:', JSON.stringify(req.body));
+    console.log('POST /api/recipes', sanitizeForLog(req.body));
     ensureDataFile(RECIPES_FILE);
     const data = fs.readFileSync(RECIPES_FILE, 'utf-8');
     const recipes: Recipe[] = JSON.parse(data);
     
-    const newRecipe: Recipe = {
+    const newRecipe: Recipe & { userId?: string } = {
       id: Date.now().toString(),
       name: req.body.name || 'Custom Recipe',
       stages: req.body.stages || []
       , baseBeans: req.body.baseBeans !== undefined ? parseFloat(req.body.baseBeans) : undefined
     };
+    newRecipe.userId = (req as any).user.id;
     
     recipes.push(newRecipe);
     fs.writeFileSync(RECIPES_FILE, JSON.stringify(recipes, null, 2));
@@ -375,7 +596,7 @@ app.post('/api/recipes', (req: Request, res: Response) => {
 });
 
 // Update an existing recipe
-app.put('/api/recipes/:id', (req: Request, res: Response) => {
+app.put('/api/recipes/:id', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(RECIPES_FILE);
     const data = fs.readFileSync(RECIPES_FILE, 'utf-8');
@@ -389,6 +610,7 @@ app.put('/api/recipes/:id', (req: Request, res: Response) => {
     if (idx === -1) {
       return res.status(404).json({ error: 'Recipe not found' });
     }
+    if ((recipes[idx] as any).userId !== (req as any).user.id) return res.status(403).json({ error: 'Forbidden' });
     recipes[idx].name = name;
     recipes[idx].stages = stages || [];
     if (req.body.baseBeans !== undefined) recipes[idx].baseBeans = parseFloat(req.body.baseBeans);
@@ -401,18 +623,18 @@ app.put('/api/recipes/:id', (req: Request, res: Response) => {
 });
 
 // Delete a recipe by ID
-app.delete('/api/recipes/:id', (req: Request, res: Response) => {
+app.delete('/api/recipes/:id', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(RECIPES_FILE);
     const data = fs.readFileSync(RECIPES_FILE, 'utf-8');
     let recipes: Recipe[] = JSON.parse(data);
         const id = req.params.id;
+        const userId = (req as any).user.id;
         console.log(`DELETE /api/recipes/${id} requested`);
-        const origLen = recipes.length;
-        recipes = recipes.filter(r => r.id !== id);
-        if (recipes.length === origLen) {
-          return res.status(404).json({ error: 'Recipe not found' });
-        }
+        const idx = recipes.findIndex(r => r.id === id);
+        if (idx === -1) return res.status(404).json({ error: 'Recipe not found' });
+        if ((recipes[idx] as any).userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+        recipes.splice(idx, 1);
     fs.writeFileSync(RECIPES_FILE, JSON.stringify(recipes, null, 2));
     res.json({ success: true });
   } catch (error) {
@@ -421,9 +643,23 @@ app.delete('/api/recipes/:id', (req: Request, res: Response) => {
 });
 
 // Only listen if this file is run directly, not when imported for tests
+// Catch-all for unknown API routes, return JSON (avoid HTML error pages for API calls)
+app.use('/api', (req: Request, res: Response) => {
+  console.warn('Unhandled API request:', req.method, req.path);
+  res.status(404).json({ error: `Not Found: ${req.method} ${req.path}` });
+});
 if (require && require.main === module) {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Pourover timer server running at http://localhost:${PORT}`);
+  });
+  server.on('error', (err: any) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use. Kill the other process or change PORT environment variable.`);
+      process.exit(1);
+    } else {
+      console.error('Server error:', err);
+      process.exit(1);
+    }
   });
 }
 
