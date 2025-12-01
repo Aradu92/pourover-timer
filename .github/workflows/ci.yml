@@ -31,11 +31,8 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit
 
-      - name: Start server in background
-        run: npm run start &
-
-      - name: Wait for server
-        run: npx wait-on http://localhost:3000 && echo "server ready"
+      # Playwright will start the server using `webServer` in playwright.config.ts,
+      # which runs the `scripts/start-with-temp-data.js` to isolate DATA_DIR per-test.
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
