@@ -89,6 +89,11 @@ test('recipe scaling with planned beans and save by UI creates brew and updates 
     // Remaining should be 290 (300 - 10)
     expect(bean.remaining).toBe(290);
 
+    // Check analytics page shows the brew
+    await page.click('#analytics-tab');
+    await page.waitForSelector('#analytics-brews-list');
+    await expect(page.locator('#analytics-brews-list')).toContainText(beanName);
+
     return;
   } finally {
     // Cleanup

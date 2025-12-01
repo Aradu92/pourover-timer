@@ -1,11 +1,16 @@
 import express, { Request, Response } from 'express';
+import dotenv from 'dotenv';
 import cors from 'cors';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { checkPwnedPasswordCount } from './pwned';
+import { sanitizeForLog } from './log-utils';
 
+// Load local .env for secrets (development/test only) — this is safe to ignore in git
+dotenv.config();
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../data');
@@ -19,20 +24,7 @@ app.use(cors());
 app.use(express.json());
 
 // Debug: log all incoming requests (method + path) BEFORE static so we can see the incoming calls
-function sanitizeForLog(obj: any) {
-  try {
-    return JSON.parse(JSON.stringify(obj, (k, v) => {
-      if (!k) return v; // top-level object
-      const low = String(k).toLowerCase();
-      if (low.includes('password') || low === 'token' || low === 'authorization' || low === 'auth' || low === 'jwt') {
-        return '[REDACTED]';
-      }
-      return v;
-    }));
-  } catch (err) {
-    return '[unserializable]';
-  }
-}
+
 
 app.use((req: Request, res: Response, next: any) => {
   const body = req.body ? sanitizeForLog(req.body) : undefined;
@@ -43,6 +35,8 @@ app.use((req: Request, res: Response, next: any) => {
 app.use(express.static(path.join(__dirname, '../public')));
 
 // JWT secret configuration: require a set secret in production; otherwise generate a secure ephemeral secret.
+const SALT_ROUNDS = parseInt(process.env.SALT_ROUNDS || '12', 10);
+
 let JWT_SECRET = process.env.JWT_SECRET || '';
 if (!JWT_SECRET) {
   if (process.env.NODE_ENV === 'production') {
@@ -52,6 +46,17 @@ if (!JWT_SECRET) {
   // Generate an ephemeral secret for development/testing runs
   JWT_SECRET = crypto.randomBytes(64).toString('hex');
   console.info('Info: JWT_SECRET not provided — using an ephemeral secret for development/test only. Do not use this in production.');
+}
+
+// If a JWT_SECRET is present but shorter than recommended, warn in dev and reject in production
+if (JWT_SECRET && JWT_SECRET.length < 32) {
+  const msg = 'JWT_SECRET is shorter than recommended (32 chars). Use a longer random secret.';
+  if (process.env.NODE_ENV === 'production') {
+    console.error('ERROR:', msg);
+    process.exit(1);
+  } else {
+    console.warn('Warning:', msg);
+  }
 }
 
 interface User {
@@ -84,29 +89,27 @@ function generateTokenForUser(user: User) {
   return jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
 }
 
-// Check a password against the HaveIBeenPwned API (k-anonymity).
-// Returns count or 0 if not found. If fetch not available or fails, returns 0.
-async function checkPwnedPasswordCount(password: string): Promise<number> {
-  if (!password) return 0;
-  try {
-    const sha1 = crypto.createHash('sha1').update(password).digest('hex').toUpperCase();
-    const prefix = sha1.slice(0, 5);
-    const suffix = sha1.slice(5);
-    const resp = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`, { headers: { 'User-Agent': 'pourover-timer' } });
-    if (!resp.ok) return 0;
-    const text = await resp.text();
-    const lines = text.split('\n');
-    for (const line of lines) {
-      const [s, countStr] = line.split(':');
-      if (!s) continue;
-      if (s.trim().toUpperCase() === suffix) return parseInt((countStr || '0').trim(), 10) || 0;
-    }
-    return 0;
-  } catch (err) {
-    console.warn('Failed to check pwned password:', err);
-    return 0;
-  }
+// Promisified bcrypt helpers for async hashing/compare
+function hashPassword(password: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    bcrypt.hash(password, SALT_ROUNDS, (err: any, hash: string | undefined) => {
+      if (err) return reject(err);
+      resolve(hash as string);
+    });
+  });
 }
+
+function comparePassword(password: string, hash: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    bcrypt.compare(password, hash, (err: any, ok: boolean | undefined) => {
+      if (err) return reject(err);
+      resolve(!!ok);
+    });
+  });
+}
+
+// We now import checkPwnedPasswordCount from ./pwned, which is unit-testable and avoids
+// inlined network logic inside server.ts. This also ensures we never transmit raw passwords.
 
 function authenticate(req: Request, res: Response, next: any) {
   const h = req.headers.authorization;
@@ -213,10 +216,11 @@ app.post('/api/users/register', async (req: Request, res: Response) => {
     }
     const { username, email, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
     const users = readUsers();
     if (users.find(u => u.username === username)) return res.status(400).json({ error: 'Username already exists' });
     const id = Date.now().toString();
-    const passwordHash = bcrypt.hashSync(password, 8);
+    const passwordHash = await hashPassword(password);
     const newUser: User = { id, username, email, passwordHash };
     users.push(newUser);
     writeUsers(users);
@@ -245,7 +249,7 @@ app.post('/api/users/login', async (req: Request, res: Response) => {
     const users = readUsers();
     const user = users.find(u => u.username === username);
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-    if (!bcrypt.compareSync(password, user.passwordHash)) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!(await comparePassword(password, user.passwordHash))) return res.status(401).json({ error: 'Invalid credentials' });
     const token = generateTokenForUser(user);
     const respBody: any = { token, id: user.id, username: user.username };
     if (pwnCount > 0) {
@@ -407,7 +411,7 @@ app.get('/api/grinders', authenticate, (req: Request, res: Response) => {
   try {
     ensureDataFile(GRINDERS_FILE);
     const data = fs.readFileSync(GRINDERS_FILE, 'utf-8');
-    const grinders: (Grinder & { userId?: string })[] = JSON.parse(    cd /home/alradulescu/testCode/coffee && npm run start:devdata);
+      const grinders: (Grinder & { userId?: string })[] = JSON.parse(data);
     const userId = (req as any).user.id;
     res.json(grinders.filter(g => (g as any).userId === userId));
   } catch (error) {

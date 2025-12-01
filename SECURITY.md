@@ -52,3 +52,18 @@ kubectl create secret generic pourover-timer-secret --from-literal=JWT_SECRET=$(
 
 When you rotate a secret (e.g., JWT_SECRET), you should also restart the pods so the new value takes effect.
 On Kubernetes: `kubectl rollout restart deployment/pourover-timer -n pourover-timer`
+
+## Local development and .env
+
+- Use a `.env` file for local development to keep secrets out of the repo. Add `.env` to `.gitignore`.
+- An example `.env.example` is provided in the repo. Copy it to `.env` and set secure values.
+- Set `SALT_ROUNDS` to `12` or higher for production; `12` is a recommended starting point to balance security and speed.
+
+## Password handling best practices
+
+- Passwords are salted by bcrypt automatically and stored as salted hashes (not plaintext). Ensure `SALT_ROUNDS` is set to at least `12`.
+- Enforce minimum password length in registration (this project uses 8 characters minimum).
+- Monitor for password breaches with HIBP; this code warns about pwned passwords but does not block registration.
+  - The HIBP (Have I Been Pwned) integration uses k-anonymity (SHA1 prefix only), so the raw password is never transmitted to the external service.
+  - The server's logging is sanitized to redact sensitive fields (password, token, jwt, authorization). The helper `sanitizeForLog` is unit-tested to ensure sensitive fields are redacted before logging.
+

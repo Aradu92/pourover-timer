@@ -12,6 +12,9 @@ data/*.json
 
 # Environment (local secrets)
 .env
+# Local .env variants
+.env.*
+.env.local
 
 # Editor
 .vscode/

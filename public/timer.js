@@ -1914,10 +1914,29 @@ document.addEventListener('DOMContentLoaded', () => {
 // Analytics functions
 let analyticsChart = null;
 let grinderChart = null;
+
+// Expose a lightweight helper to count brews by day on the window for reuse/tests
+window.countBrewsByDay = function (brews, days = 30) {
+    const countsByDay = {};
+    const today = new Date();
+    // Build keys using UTC to avoid timezone-related off-by-one errors
+    for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - i));
+        const key = d.toISOString().split('T')[0];
+        countsByDay[key] = 0;
+    }
+    (brews || []).forEach(brew => {
+        if (brew && brew.timestamp) {
+            const key = new Date(brew.timestamp).toISOString().split('T')[0];
+            if (countsByDay[key] !== undefined) countsByDay[key]++;
+        }
+    });
+    return { labels: Object.keys(countsByDay), values: Object.values(countsByDay), countsByDay };
+}
 async function refreshAnalytics() {
     console.log('refreshAnalytics: starting');
     try {
-        const response = await fetch('http://localhost:3000/api/brews', { headers: { ...getAuthHeaders() } });
+        const response = await fetch(`${API_BASE}/api/brews`, { headers: { ...getAuthHeaders() } });
         const brews = await response.json();
         console.log('refreshAnalytics: fetched', brews.length, 'brews');
 
@@ -2415,21 +2434,31 @@ function calculateStats(brews) {
     const trendCtxEl = document.getElementById('trend-chart');
     if (trendCtxEl) {
         const trendCtx = trendCtxEl.getContext('2d');
-        // Build per-day count for last 30 days
-        const countsByDay = {};
-        const days = 30;
-        const today = new Date();
-        for (let i = days - 1; i >= 0; i--) {
-            const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-            const key = d.toISOString().split('T')[0];
-            countsByDay[key] = 0;
-        }
-        brews.forEach(brew => {
-            if (brew.timestamp) {
-                const key = new Date(brew.timestamp).toISOString().split('T')[0];
-                if (countsByDay[key] !== undefined) countsByDay[key]++;
+        // Build per-day count for last 30 days using helper function if available
+        let countsByDay = {};
+        try {
+            if (typeof window !== 'undefined' && window.countBrewsByDay) {
+                const res = window.countBrewsByDay(brews, 30);
+                // res.countsByDay is a map keyed by date
+                countsByDay = res.countsByDay || {};
+            } else {
+                const days = 30;
+                const today = new Date();
+                for (let i = days - 1; i >= 0; i--) {
+                    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+                    const key = d.toISOString().split('T')[0];
+                    countsByDay[key] = 0;
+                }
+                brews.forEach(brew => {
+                    if (brew.timestamp) {
+                        const key = new Date(brew.timestamp).toISOString().split('T')[0];
+                        if (countsByDay[key] !== undefined) countsByDay[key]++;
+                    }
+                });
             }
-        });
+        } catch (err) {
+            console.warn('countBrewsByDay helper not available, falling back', err);
+        }
         const trendLabels = Object.keys(countsByDay);
         const trendValues = Object.values(countsByDay);
         if (window.trendChart) window.trendChart.destroy();
@@ -2479,7 +2508,9 @@ function renderAnalyticsList(brews) {
         return;
     }
     
-    container.innerHTML = brews.map(brew => {
+    container.innerHTML = (function(brews) {
+        if (!Array.isArray(brews) || brews.length === 0) return '<p class="text-gray-500 text-center py-8">No brews found matching filters.</p>';
+        return brews.map(brew => {
         const date = new Date(brew.timestamp).toLocaleDateString();
         const stars = '⭐'.repeat(brew.rating || 0);
         const recipeName = brew.recipe && brew.recipe.name ? brew.recipe.name : 'Default Recipe';
@@ -2520,7 +2551,8 @@ function renderAnalyticsList(brews) {
                 ` : ''}
             </div>
         `;
-    }).join('');
+        }).join('');
+    })(brews);
 }
 
 function exportFilteredCsv() {

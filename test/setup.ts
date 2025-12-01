@@ -16,7 +16,7 @@ console.log('Using temp test data dir:', tempDir);
 
 process.env.DATA_DIR = tempDir;
 // Ensure JWT_SECRET is set for tests
-process.env.JWT_SECRET = process.env.JWT_SECRET || Math.random().toString(36).slice(2);
+process.env.JWT_SECRET = process.env.JWT_SECRET || require('crypto').randomBytes(64).toString('hex');
 
 // Export for other test files (optionally)
 export default tempDir;
